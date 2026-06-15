@@ -18,13 +18,31 @@ This fork is based on [snarktank/ralph](https://github.com/snarktank/ralph) and 
 
 ## Setup
 
+### Install Into Codex
+
+Install the PRD/Ralph skills and runner templates into your Codex home:
+
+```powershell
+.\install-codex.ps1 -Force
+```
+
+By default this installs to `$env:CODEX_HOME` when set, otherwise `%USERPROFILE%\.codex`:
+
+- `skills\prd`
+- `skills\ralph`
+- `vendor_imports\ralph-codex`
+
+Restart Codex after installing so the skills are discovered.
+
+### Add Ralph To A Project
+
 Copy the Ralph files into your project:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path scripts\ralph
-Copy-Item .\ralph.ps1 scripts\ralph\
-Copy-Item .\CODEX.md scripts\ralph\
-Copy-Item .\prd.json.example scripts\ralph\
+Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\ralph.ps1" scripts\ralph\
+Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\CODEX.md" scripts\ralph\
+Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\prd.json.example" scripts\ralph\
 ```
 
 Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
@@ -35,9 +53,9 @@ For Bash-compatible environments:
 
 ```bash
 mkdir -p scripts/ralph
-cp ralph.sh scripts/ralph/
-cp CODEX.md scripts/ralph/
-cp prd.json.example scripts/ralph/
+cp ~/.codex/vendor_imports/ralph-codex/ralph.sh scripts/ralph/
+cp ~/.codex/vendor_imports/ralph-codex/CODEX.md scripts/ralph/
+cp ~/.codex/vendor_imports/ralph-codex/prd.json.example scripts/ralph/
 chmod +x scripts/ralph/ralph.sh
 ```
 
