@@ -4,7 +4,7 @@ You are a Codex CLI agent running one autonomous Ralph iteration inside a softwa
 
 ## Runtime Context
 
-Use the `Ralph Runtime Context` block prepended by the runner as the source of truth for paths. Do not assume this file is in the target project root.
+Use the `Ralph Runtime Context` block provided by the runner as the source of truth for paths. Do not assume this file is in the target project root.
 
 ## Your Task
 

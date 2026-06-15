@@ -111,6 +111,8 @@ For write-capable multi-agent work, say `用 RA 并行跑 ...`. Parallel mode us
 
 Use `-DryRun` to preview selected stories, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
 
+Ralph builds Codex prompts with stable instructions first and runtime details last. Keep `CODEX.md` focused on durable rules; put changing facts such as current story details, timestamps, logs, and paths in `scripts\ralph\prd.json` or `progress.txt` instead of editing `CODEX.md` each run. Parallel workers share the same stable prefix and only differ in the runtime tail.
+
 ### 1. Create a PRD
 
 Use the `prd` skill to generate a detailed requirements document:

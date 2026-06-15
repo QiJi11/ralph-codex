@@ -96,6 +96,56 @@ function Invoke-RalphArchiveIfNeeded {
     $currentBranch | Set-Content -LiteralPath $LastBranchFile -Encoding UTF8
 }
 
+# Builds the stable prompt prefix that should stay identical across runs for better prompt-cache reuse.
+function New-RalphStablePromptPrefix {
+    param([string]$CodexFile)
+
+    $instructions = Get-Content -LiteralPath $CodexFile -Raw -Encoding UTF8
+    return @"
+Ralph Stable Instructions:
+The following instructions are intentionally placed before runtime-specific values so repeated Ralph runs can share a stable prompt prefix. Keep project paths, iteration numbers, timestamps, log paths, and story-specific data out of this section.
+
+$instructions
+"@
+}
+
+# Builds the runtime-specific prompt tail for the current iteration.
+function New-RalphDynamicPromptTail {
+    param(
+        [string]$ProjectRoot,
+        [string]$ScriptDir,
+        [string]$PrdFile,
+        [string]$ProgressFile,
+        [string]$LogFile
+    )
+
+    return @"
+
+Ralph Runtime Context:
+- Script directory: $ScriptDir
+- PRD file: $PrdFile
+- Progress file: $ProgressFile
+- Log file: $LogFile
+- Invocation working directory: $ProjectRoot
+"@
+}
+
+# Builds the full prompt with stable instructions first and dynamic runtime context last.
+function New-RalphPrompt {
+    param(
+        [string]$ProjectRoot,
+        [string]$ScriptDir,
+        [string]$PrdFile,
+        [string]$ProgressFile,
+        [string]$CodexFile,
+        [string]$LogFile
+    )
+
+    $stablePrefix = New-RalphStablePromptPrefix -CodexFile $CodexFile
+    $dynamicTail = New-RalphDynamicPromptTail -ProjectRoot $ProjectRoot -ScriptDir $ScriptDir -PrdFile $PrdFile -ProgressFile $ProgressFile -LogFile $LogFile
+    return $stablePrefix + $dynamicTail
+}
+
 # Runs one non-interactive Codex CLI iteration and captures its output.
 function Invoke-CodexIteration {
     param(
@@ -108,16 +158,7 @@ function Invoke-CodexIteration {
         [string]$Model
     )
 
-    $context = @"
-Ralph Runtime Context:
-- Script directory: $ScriptDir
-- PRD file: $PrdFile
-- Progress file: $ProgressFile
-- Invocation working directory: $ProjectRoot
-
-"@
-
-    $prompt = $context + (Get-Content -LiteralPath $CodexFile -Raw -Encoding UTF8)
+    $prompt = New-RalphPrompt -ProjectRoot $ProjectRoot -ScriptDir $ScriptDir -PrdFile $PrdFile -ProgressFile $ProgressFile -CodexFile $CodexFile -LogFile $LogFile
     $args = @(
         "exec",
         "--dangerously-bypass-approvals-and-sandbox",

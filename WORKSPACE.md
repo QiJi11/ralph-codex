@@ -48,6 +48,8 @@ RA can use parallel subagents for read-only review, but only the main RA flow sh
 
 For write-capable multi-agent runs, use `用 RA 并行跑 ...`. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`.
 
+Ralph prompts are cache-friendly by design: stable instructions from `CODEX.md` are placed before runtime-specific values. Keep `CODEX.md` stable across runs, and put changing story details, logs, timestamps, and paths in `scripts\ralph\prd.json` or `progress.txt`.
+
 ## Setup
 
 Initialize the workspace:

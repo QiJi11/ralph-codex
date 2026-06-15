@@ -103,6 +103,10 @@ Rules:
 - If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
 - Use `-DryRun` before risky parallel runs to show selected stories and worktree paths.
 
+## Prompt Cache Hygiene
+
+Ralph places stable `CODEX.md` instructions before runtime-specific context. Keep durable rules in `CODEX.md`, and put changing details in `scripts\ralph\prd.json`, `progress.txt`, or the execution brief. Do not rewrite `CODEX.md` for each run unless the durable operating rules actually changed.
+
 ## Project Resolution
 
 ### Existing Registered Project
