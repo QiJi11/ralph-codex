@@ -103,6 +103,14 @@ RA may use parallel subagents for read-only review, but the main RA flow owns al
 & "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
 ```
 
+For write-capable multi-agent work, say `用 RA 并行跑 ...`. Parallel mode uses isolated git worktrees and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
+```
+
+Use `-DryRun` to preview selected stories, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
+
 ### 1. Create a PRD
 
 Use the `prd` skill to generate a detailed requirements document:

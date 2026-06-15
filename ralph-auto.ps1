@@ -1,14 +1,18 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject")]
+    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel")]
     [string]$Command,
 
     [string]$WorkspaceRoot = "C:\Users\10531\RalphWorkspace",
     [string]$Project = "",
     [string]$ProjectPath = "",
     [int]$MaxIterations = 10,
-    [string]$Model = ""
+    [string]$Model = "",
+    [int]$MaxWorkers = 2,
+    [switch]$NoMerge,
+    [switch]$CleanupOnSuccess,
+    [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
@@ -119,6 +123,87 @@ function Assert-RalphAutoGitProject {
     }
 }
 
+# Converts arbitrary text into a branch/path-safe segment.
+function Get-RalphAutoSafeName {
+    param([string]$Value)
+
+    $safe = $Value -replace '[^\w.-]+', '-'
+    $safe = $safe.Trim("-")
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        return "item"
+    }
+
+    return $safe
+}
+
+# Returns true when an object has the named property.
+function Test-RalphAutoProperty {
+    param(
+        [object]$Object,
+        [string]$Name
+    )
+
+    return $null -ne $Object.PSObject.Properties[$Name]
+}
+
+# Resolves a Ralph template file from the repo root, legacy scripts path, or installed vendor path.
+function Resolve-RalphAutoTemplateFile {
+    param([string]$FileName)
+
+    $candidates = @(
+        (Join-Path $RepositoryRoot $FileName),
+        (Join-Path $RepositoryRoot "scripts\ralph\$FileName"),
+        (Join-Path (Get-RalphVendorRoot) $FileName)
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    return ""
+}
+
+# Throws when a git working tree has uncommitted changes.
+function Assert-RalphAutoCleanGit {
+    param([string]$Path)
+
+    $status = @(& git -C $Path status --short)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cannot read git status for $Path"
+    }
+
+    if ($status.Count -gt 0) {
+        throw "Project worktree must be clean before RunParallel: $Path"
+    }
+}
+
+# Copies Ralph runner template files into a project path.
+function Copy-RalphAutoTemplates {
+    param([string]$ProjectRoot)
+
+    $ralphDir = Join-Path $ProjectRoot "scripts\ralph"
+    New-Item -ItemType Directory -Force -Path $ralphDir | Out-Null
+
+    $runnerSource = Resolve-RalphAutoTemplateFile -FileName "ralph.ps1"
+    if ([string]::IsNullOrWhiteSpace($runnerSource)) {
+        throw "Cannot find Ralph PowerShell runner at repository or vendor path."
+    }
+
+    Copy-Item -LiteralPath $runnerSource -Destination (Join-Path $ralphDir "ralph.ps1") -Force
+
+    $codexSource = Resolve-RalphAutoTemplateFile -FileName "CODEX.md"
+    if (-not [string]::IsNullOrWhiteSpace($codexSource)) {
+        Copy-Item -LiteralPath $codexSource -Destination (Join-Path $ralphDir "CODEX.md") -Force
+    }
+
+    $exampleSource = Resolve-RalphAutoTemplateFile -FileName "prd.json.example"
+    if (-not [string]::IsNullOrWhiteSpace($exampleSource)) {
+        Copy-Item -LiteralPath $exampleSource -Destination (Join-Path $ralphDir "prd.json.example") -Force
+    }
+}
+
 # Returns a registered project record by name.
 function Get-RalphAutoProject {
     param(
@@ -191,36 +276,7 @@ function Initialize-RalphAutoProject {
     $projectRoot = Resolve-RalphAutoProjectPath -Path $projectRecord.path
     $ralphDir = Join-Path $projectRoot "scripts\ralph"
 
-    New-Item -ItemType Directory -Force -Path $ralphDir | Out-Null
-
-    $runnerSource = Join-Path $RepositoryRoot "scripts\ralph\ralph.ps1"
-    if (-not (Test-Path -LiteralPath $runnerSource)) {
-        $runnerSource = Join-Path (Get-RalphVendorRoot) "ralph.ps1"
-    }
-
-    if (-not (Test-Path -LiteralPath $runnerSource)) {
-        throw "Cannot find Ralph PowerShell runner at repository or vendor path."
-    }
-
-    Copy-Item -LiteralPath $runnerSource -Destination (Join-Path $ralphDir "ralph.ps1") -Force
-
-    $codexSource = Join-Path $RepositoryRoot "scripts\ralph\CODEX.md"
-    if (-not (Test-Path -LiteralPath $codexSource)) {
-        $codexSource = Join-Path (Get-RalphVendorRoot) "CODEX.md"
-    }
-
-    if (Test-Path -LiteralPath $codexSource) {
-        Copy-Item -LiteralPath $codexSource -Destination (Join-Path $ralphDir "CODEX.md") -Force
-    }
-
-    $exampleSource = Join-Path $RepositoryRoot "scripts\ralph\prd.json.example"
-    if (-not (Test-Path -LiteralPath $exampleSource)) {
-        $exampleSource = Join-Path (Get-RalphVendorRoot) "prd.json.example"
-    }
-
-    if (Test-Path -LiteralPath $exampleSource) {
-        Copy-Item -LiteralPath $exampleSource -Destination (Join-Path $ralphDir "prd.json.example") -Force
-    }
+    Copy-RalphAutoTemplates -ProjectRoot $projectRoot
 
     Write-Host "Initialized Ralph files for project: $Name"
     Write-Host "Ralph directory: $ralphDir"
@@ -360,6 +416,238 @@ function Invoke-RalphAutoProject {
     }
 }
 
+# Runs parallel-safe PRD stories in isolated git worktrees.
+function Invoke-RalphAutoParallelProject {
+    param(
+        [string]$Root,
+        [string]$Name,
+        [int]$Iterations,
+        [int]$Workers,
+        [string]$RequestedModel,
+        [bool]$SkipMerge,
+        [bool]$RemoveSuccessfulWorktrees,
+        [bool]$PreviewOnly
+    )
+
+    Assert-RalphAutoValue -Name "Project" -Value $Name
+    if ($Workers -lt 1) {
+        throw "MaxWorkers must be 1 or greater"
+    }
+
+    $registry = Read-RalphAutoRegistry -Root $Root
+    $projectRecord = Get-RalphAutoProject -Registry $registry -Name $Name
+    $projectRoot = Resolve-RalphAutoProjectPath -Path $projectRecord.path
+    $ralphDir = Join-Path $projectRoot "scripts\ralph"
+    $prdPath = Join-Path $ralphDir "prd.json"
+
+    if (-not (Test-Path -LiteralPath $prdPath)) {
+        throw "Missing PRD for RunParallel: $prdPath"
+    }
+
+    Assert-RalphAutoCleanGit -Path $projectRoot
+
+    $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $stories = @($prd.userStories)
+    $completedIds = @($stories | Where-Object { $_.passes -eq $true } | ForEach-Object { [string]$_.id })
+    $ready = @()
+
+    foreach ($story in ($stories | Sort-Object priority)) {
+        if ($story.passes -eq $true) {
+            continue
+        }
+
+        if (-not (Test-RalphAutoProperty -Object $story -Name "parallelSafe") -or $story.parallelSafe -ne $true) {
+            continue
+        }
+
+        $dependsOn = @()
+        if (Test-RalphAutoProperty -Object $story -Name "dependsOn") {
+            $dependsOn = @($story.dependsOn | ForEach-Object { [string]$_ })
+        }
+
+        $blocked = @($dependsOn | Where-Object { $completedIds -notcontains $_ })
+        if ($blocked.Count -eq 0) {
+            $ready += $story
+        }
+    }
+
+    $selected = @($ready | Select-Object -First $Workers)
+    if ($selected.Count -eq 0) {
+        throw "No parallel-safe ready stories found. Mark stories with parallelSafe: true and satisfied dependsOn."
+    }
+
+    $runId = Get-Date -Format "yyyyMMdd-HHmmss"
+    $safeProject = Get-RalphAutoSafeName -Value $Name
+    $taskRoot = Join-Path $Root "tasks\$safeProject\$runId"
+    $baseBranch = (& git -C $projectRoot branch --show-current)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baseBranch)) {
+        throw "Cannot determine current branch for $projectRoot"
+    }
+
+    Write-Host "RunParallel project: $Name"
+    Write-Host "Project root: $projectRoot"
+    Write-Host "Base branch: $baseBranch"
+    Write-Host "Task root: $taskRoot"
+    Write-Host "Selected stories:"
+    $selected | ForEach-Object { Write-Host "  $($_.id): $($_.title)" }
+
+    if ($PreviewOnly) {
+        Write-Host "DryRun: no worktrees created and no workers started."
+        foreach ($story in $selected) {
+            $storyId = Get-RalphAutoSafeName -Value ([string]$story.id)
+            $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
+            $worktreePath = Join-Path $taskRoot $storyId
+            Write-Host "Would create: $worktreePath"
+            Write-Host "Would branch: $branchName"
+        }
+        return
+    }
+
+    New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
+    $jobs = @()
+
+    foreach ($story in $selected) {
+        $storyId = Get-RalphAutoSafeName -Value ([string]$story.id)
+        $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
+        $worktreePath = Join-Path $taskRoot $storyId
+
+        & git -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create worktree for $($story.id)"
+        }
+
+        Copy-RalphAutoTemplates -ProjectRoot $worktreePath
+
+        $workerRalphDir = Join-Path $worktreePath "scripts\ralph"
+        $workerPrdPath = Join-Path $workerRalphDir "prd.json"
+        $workerPrd = $prd | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $workerPrd.branchName = $branchName
+        $workerPrd.userStories = @($story)
+        $workerPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $workerPrdPath -Encoding UTF8
+
+        $runnerPath = Join-Path $workerRalphDir "ralph.ps1"
+        $workerArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $runnerPath,
+            "-ProjectRoot",
+            $worktreePath,
+            "-RalphDir",
+            $workerRalphDir,
+            "-MaxIterations",
+            $Iterations
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($RequestedModel)) {
+            $workerArgs += @("-Model", $RequestedModel)
+        }
+
+        Write-Host "Starting worker $($story.id): pwsh $($workerArgs -join ' ')"
+        $job = Start-Job -Name $story.id -ScriptBlock {
+            param([string[]]$ArgsForPwsh)
+            & pwsh @ArgsForPwsh
+            if ($LASTEXITCODE -ne 0) {
+                throw "Ralph worker exited with code $LASTEXITCODE"
+            }
+        } -ArgumentList (,$workerArgs)
+
+        $jobs += [pscustomobject]@{
+            StoryId = [string]$story.id
+            StoryTitle = [string]$story.title
+            Branch = $branchName
+            Worktree = $worktreePath
+            Job = $job
+        }
+    }
+
+    $failed = @()
+    foreach ($item in $jobs) {
+        Wait-Job -Job $item.Job | Out-Null
+        Receive-Job -Job $item.Job | Out-Host
+        if ($item.Job.State -ne "Completed") {
+            $failed += $item
+            continue
+        }
+    }
+
+    if ($failed.Count -gt 0) {
+        Write-Host "One or more workers failed. Worktrees were preserved."
+        $failed | ForEach-Object { Write-Host "  $($_.StoryId): $($_.Worktree)" }
+        throw "RunParallel worker failure"
+    }
+
+    if ($SkipMerge) {
+        Write-Host "NoMerge was set. Worker branches were left unmerged."
+        $jobs | ForEach-Object { Write-Host "  $($_.Branch) -> $($_.Worktree)" }
+        return
+    }
+
+    foreach ($item in $jobs) {
+        & git -C $item.Worktree restore --source $baseBranch -- scripts/ralph 2>$null
+        & git -C $item.Worktree clean -fd -- scripts/ralph | Out-Host
+        if ($LASTEXITCODE -eq 0) {
+            $stateStatus = @(& git -C $item.Worktree status --short -- scripts/ralph)
+            if ($stateStatus.Count -gt 0) {
+                & git -C $item.Worktree add scripts/ralph | Out-Host
+                & git -C $item.Worktree commit -m "chore: keep worker Ralph state out of merge" | Out-Host
+            }
+        }
+
+        Write-Host "Merging $($item.Branch)"
+        & git -C $projectRoot merge --no-ff $item.Branch -m "merge: $($item.StoryId) parallel RA worker" | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Merge conflict or merge failure. Worktree preserved: $($item.Worktree)"
+            throw "Failed to merge $($item.Branch)"
+        }
+    }
+
+    if (Test-Path -LiteralPath $prdPath) {
+        $mainPrd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($item in $jobs) {
+            $mainStory = @($mainPrd.userStories | Where-Object { $_.id -eq $item.StoryId }) | Select-Object -First 1
+            if ($null -ne $mainStory) {
+                $mainStory.passes = $true
+                $note = "Completed by parallel RA worker branch $($item.Branch)"
+                if (Test-RalphAutoProperty -Object $mainStory -Name "notes") {
+                    $mainStory.notes = $note
+                } else {
+                    $mainStory | Add-Member -NotePropertyName "notes" -NotePropertyValue $note
+                }
+            }
+        }
+
+        $mainPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $prdPath -Encoding UTF8
+        $progressPath = Join-Path $ralphDir "progress.txt"
+        if (-not (Test-Path -LiteralPath $progressPath)) {
+            "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
+            "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        }
+
+        foreach ($item in $jobs) {
+            "" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - $($item.StoryId)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "- Completed by parallel RA worker branch $($item.Branch)." | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "- Worktree: $($item.Worktree)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "- Merged into $baseBranch." | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        }
+
+        & git -C $projectRoot add scripts\ralph\prd.json scripts\ralph\progress.txt | Out-Host
+        & git -C $projectRoot commit -m "chore: update parallel RA state" | Out-Host
+    }
+
+    if ($RemoveSuccessfulWorktrees) {
+        foreach ($item in $jobs) {
+            & git -C $projectRoot worktree remove $item.Worktree --force | Out-Host
+        }
+    }
+
+    Write-Host "RunParallel completed."
+}
+
 switch ($Command) {
     "InitWorkspace" {
         Initialize-RalphAutoWorkspace -Root $WorkspaceRoot
@@ -381,5 +669,8 @@ switch ($Command) {
     }
     "RunProject" {
         Invoke-RalphAutoProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -RequestedModel $Model
+    }
+    "RunParallel" {
+        Invoke-RalphAutoParallelProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -Workers $MaxWorkers -RequestedModel $Model -SkipMerge:$NoMerge.IsPresent -RemoveSuccessfulWorktrees:$CleanupOnSuccess.IsPresent -PreviewOnly:$DryRun.IsPresent
     }
 }

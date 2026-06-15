@@ -13,3 +13,6 @@
 # Tool state
 .claude/
 .codex/
+
+# Local smoke-test scripts
+.tmp-*.ps1

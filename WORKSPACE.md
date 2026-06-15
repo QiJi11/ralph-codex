@@ -46,6 +46,8 @@ Before running Ralph, Codex should state the execution brief: project, goal, ass
 
 RA can use parallel subagents for read-only review, but only the main RA flow should write project files, Ralph state, or git commits.
 
+For write-capable multi-agent runs, use `用 RA 并行跑 ...`. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`.
+
 ## Setup
 
 Initialize the workspace:
@@ -81,6 +83,7 @@ The helper provides the same workspace actions with one stable entrypoint:
 .\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -ProjectPath 'D:\AtoC\文档\inventory-app'
 .\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
 .\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
 ```
 
 ## MVP Limits

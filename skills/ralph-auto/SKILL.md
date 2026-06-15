@@ -16,6 +16,12 @@ Treat `RA`, `ra`, `Ralph Auto`, and `ralph-auto` as the same trigger. Recommende
 用 RA 跑 <project> 的 <task>
 ```
 
+Use parallel mode only when the user explicitly says `并行`, `parallel`, or asks for multiple RA agents:
+
+```text
+用 RA 并行跑 <project> 的 <task>
+```
+
 ## Defaults
 
 - Default workspace: `C:\Users\10531\RalphWorkspace`
@@ -49,7 +55,7 @@ Do not silently change scope, acceptance criteria, project, branch, or max itera
 
 ## Parallel Agent Policy
 
-Use parallel subagents only for read-only review, investigation, and validation. The main RA flow owns all writes to `scripts\ralph\prd.json`, `scripts\ralph\progress.txt`, git commits, and project files.
+Use read-only subagents freely for review, investigation, and validation. Use write-capable parallel RA workers only through `RunParallel`, which creates isolated git worktrees.
 
 Safe parallel tasks:
 
@@ -70,6 +76,32 @@ For a local read-only review, run:
 ```powershell
 .\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app'
 ```
+
+## Parallel Write Mode
+
+Only use `RunParallel` after the PRD exists and stories intended for parallel execution have:
+
+```json
+{
+  "parallelSafe": true,
+  "dependsOn": []
+}
+```
+
+RunParallel defaults to 2 workers:
+
+```powershell
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app' -MaxWorkers 2 -MaxIterations 3
+```
+
+Rules:
+
+- The main project worktree must be clean before starting.
+- Each worker gets a separate git worktree under `RalphWorkspace\tasks`.
+- Each worker receives a PRD containing only its assigned story.
+- Main RA merges successful worker branches back into the project.
+- If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
+- Use `-DryRun` before risky parallel runs to show selected stories and worktree paths.
 
 ## Project Resolution
 
