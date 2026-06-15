@@ -31,6 +31,7 @@ By default this installs to `$env:CODEX_HOME` when set, otherwise `%USERPROFILE%
 - `skills\prd`
 - `skills\ralph`
 - `skills\run-ralph`
+- `skills\ralph-auto`
 - `vendor_imports\ralph-codex`
 
 Restart Codex after installing so the skills are discovered.
@@ -66,7 +67,31 @@ Commit these Ralph files before starting the autonomous loop so Codex iterations
 Do not run directly from `prd.json.example`; generate `scripts/ralph/prd.json` with the `ralph` skill first.
 Project-level `scripts/ralph/prd.json` and `scripts/ralph/progress.txt` should be committed as Ralph state.
 
+Ralph Auto adds a natural-language Codex path that can register projects in a workspace, prepare `scripts\ralph\prd.json`, and run Ralph from the project entrypoint. It is installed by `install-codex.ps1` with the other Codex skills and runner templates.
+
 ## Workflow
+
+### Natural Language Ralph Auto
+
+After installing Ralph Auto, ask Codex for the product outcome directly:
+
+```
+Build an MVP for my registered project inventory-app that adds CSV import.
+```
+
+For a registered project, Codex uses the workspace registry at `C:\Users\10531\RalphWorkspace\projects.json`, generates or updates the PRD, converts it to `scripts\ralph\prd.json`, and runs:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+```
+
+For an unregistered local git project, include the path once:
+
+```
+Implement the reporting MVP in D:\AtoC\文档\reporting-app with Ralph Auto.
+```
+
+Codex registers the path, initializes Ralph files if needed, prepares `scripts\ralph\prd.json`, then runs the same workspace entrypoint.
 
 ### 1. Create a PRD
 
@@ -165,6 +190,7 @@ Ralph will:
 
 - `ralph.ps1` - PowerShell Codex runner for Windows.
 - `ralph.sh` - Bash runner for Codex, Amp, or Claude Code.
+- `ralph-auto.ps1` - PowerShell workspace helper for natural-language Ralph Auto runs.
 - `CODEX.md` - Instructions given to each Codex CLI instance.
 - `prompt.md` - Legacy prompt template for Amp.
 - `CLAUDE.md` - Legacy prompt template for Claude Code.
@@ -175,6 +201,7 @@ Ralph will:
 - `skills/prd/` - Skill for generating PRDs.
 - `skills/ralph/` - Skill for converting PRDs to JSON.
 - `skills/run-ralph/` - Skill for running a named project from a Ralph workspace.
+- `skills/ralph-auto/` - Skill for natural-language Ralph Auto workflow requests.
 - `workspace.ps1` - Workspace runner for multiple local projects.
 - `workspace.example.json` - Example workspace project registry.
 - `WORKSPACE.md` - Workspace usage guide.

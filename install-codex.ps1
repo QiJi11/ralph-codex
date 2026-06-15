@@ -17,7 +17,17 @@ if ([string]::IsNullOrWhiteSpace($CodexHome)) {
 
 $RepoRoot = $PSScriptRoot
 $SkillsSource = Join-Path $RepoRoot "skills"
-$RunnerSourceFiles = @("ralph.ps1", "ralph.sh", "CODEX.md", "prd.json.example", "install-codex.ps1", "workspace.ps1", "workspace.example.json", "WORKSPACE.md")
+$RunnerSourceFiles = @(
+    "ralph.ps1",
+    "ralph.sh",
+    "ralph-auto.ps1",
+    "CODEX.md",
+    "prd.json.example",
+    "install-codex.ps1",
+    "workspace.ps1",
+    "workspace.example.json",
+    "WORKSPACE.md"
+)
 $SkillsDest = Join-Path $CodexHome "skills"
 $RunnerDest = Join-Path $CodexHome "vendor_imports\ralph-codex"
 

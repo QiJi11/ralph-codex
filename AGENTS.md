@@ -56,3 +56,4 @@ npm run dev
 - Always update AGENTS.md with discovered patterns for future iterations
 - `ralph-auto.ps1` is the PowerShell-first workspace entrypoint; it stores project registrations in `<WorkspaceRoot>\projects.json`.
 - Ralph Auto resolves vendor imports from `CODEX_HOME\vendor_imports\ralph-codex`, falling back to `%USERPROFILE%\.codex\vendor_imports\ralph-codex`.
+- `install-codex.ps1` installs `ralph-auto.ps1` to `vendor_imports\ralph-codex` and `skills\ralph-auto` to the Codex skills directory.
