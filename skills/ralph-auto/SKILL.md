@@ -28,10 +28,11 @@ Treat `RA`, `ra`, `Ralph Auto`, and `ralph-auto` as the same trigger. Recommende
 
 1. Identify the target project and workspace.
 2. Write a short execution brief before running Ralph.
-3. Generate or update a concise PRD for the requested work.
-4. Convert the PRD into `scripts\ralph\prd.json`.
-5. Run Ralph through the workspace entrypoint for that project.
-6. Report the project, workspace, PRD path, and Ralph command used.
+3. Run optional read-only review before execution when useful.
+4. Generate or update a concise PRD for the requested work.
+5. Convert the PRD into `scripts\ralph\prd.json`.
+6. Run Ralph through the workspace entrypoint for that project.
+7. Report the project, workspace, PRD path, and Ralph command used.
 
 ## Execution Brief
 
@@ -45,6 +46,30 @@ Before starting Ralph, state the execution contract:
 - Max iterations
 
 Do not silently change scope, acceptance criteria, project, branch, or max iterations after the brief is set. If the work is blocked, infeasible, too broad, or needs changed criteria, stop and ask the user instead of rewriting the plan yourself.
+
+## Parallel Agent Policy
+
+Use parallel subagents only for read-only review, investigation, and validation. The main RA flow owns all writes to `scripts\ralph\prd.json`, `scripts\ralph\progress.txt`, git commits, and project files.
+
+Safe parallel tasks:
+
+- Inspect the codebase for relevant files and patterns.
+- Review the execution brief for missing checks.
+- Inspect current Ralph state with `ReviewProject`.
+- Review logs and summarize blockers.
+
+Unsafe parallel tasks:
+
+- Editing project files.
+- Editing Ralph state files.
+- Running `RunProject`.
+- Committing, merging, rebasing, or pushing.
+
+For a local read-only review, run:
+
+```powershell
+.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app'
+```
 
 ## Project Resolution
 

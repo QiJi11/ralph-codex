@@ -44,6 +44,8 @@ Codex should generate or update the PRD, convert it to `scripts\ralph\prd.json`,
 
 Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If the scope, checks, or iteration budget need to change, Codex should stop and ask the user.
 
+RA can use parallel subagents for read-only review, but only the main RA flow should write project files, Ralph state, or git commits.
+
 ## Setup
 
 Initialize the workspace:
@@ -77,6 +79,7 @@ The helper provides the same workspace actions with one stable entrypoint:
 ```powershell
 .\ralph-auto.ps1 -Command InitWorkspace -WorkspaceRoot 'C:\Users\10531\RalphWorkspace'
 .\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -ProjectPath 'D:\AtoC\文档\inventory-app'
+.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
 .\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
 ```
 

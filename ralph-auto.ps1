@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "RunProject")]
+    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject")]
     [string]$Command,
 
     [string]$WorkspaceRoot = "C:\Users\10531\RalphWorkspace",
@@ -227,6 +227,80 @@ function Initialize-RalphAutoProject {
 }
 
 # Runs the registered project's Ralph entrypoint from the project root.
+function Show-RalphAutoProjectReview {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
+
+    Assert-RalphAutoValue -Name "Project" -Value $Name
+
+    $registry = Read-RalphAutoRegistry -Root $Root
+    $projectRecord = Get-RalphAutoProject -Registry $registry -Name $Name
+    $projectRoot = Resolve-RalphAutoProjectPath -Path $projectRecord.path
+    $ralphDir = Join-Path $projectRoot "scripts\ralph"
+    $prdPath = Join-Path $ralphDir "prd.json"
+    $progressPath = Join-Path $ralphDir "progress.txt"
+    $runsDir = Join-Path $ralphDir "runs"
+
+    Write-Host "Project: $Name"
+    Write-Host "Project root: $projectRoot"
+    Write-Host "Workspace: $Root"
+    Write-Host "Ralph dir: $ralphDir"
+
+    $branch = (& git -C $projectRoot branch --show-current 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($branch)) {
+        Write-Host "Git branch: $branch"
+    }
+
+    Write-Host "Git status:"
+    $status = @(& git -C $projectRoot status --short 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  unavailable"
+    } elseif ($status.Count -eq 0) {
+        Write-Host "  clean"
+    } else {
+        $status | ForEach-Object { Write-Host "  $_" }
+    }
+
+    if (Test-Path -LiteralPath $prdPath) {
+        $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $stories = @($prd.userStories)
+        $unfinished = @($stories | Where-Object { $_.passes -ne $true })
+        Write-Host "PRD: $prdPath"
+        Write-Host "Stories: $($stories.Count)"
+        Write-Host "Unfinished: $($unfinished.Count)"
+        foreach ($story in ($unfinished | Sort-Object priority | Select-Object -First 5)) {
+            Write-Host "  $($story.id): $($story.title)"
+        }
+    } else {
+        Write-Host "PRD: missing"
+    }
+
+    if (Test-Path -LiteralPath $progressPath) {
+        Write-Host "Progress: $progressPath"
+        Write-Host "Progress tail:"
+        Get-Content -LiteralPath $progressPath -Tail 20 -Encoding UTF8 | ForEach-Object {
+            Write-Host "  $_"
+        }
+    } else {
+        Write-Host "Progress: missing"
+    }
+
+    if (Test-Path -LiteralPath $runsDir) {
+        $runs = @(Get-ChildItem -LiteralPath $runsDir -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5)
+        Write-Host "Recent runs:"
+        if ($runs.Count -eq 0) {
+            Write-Host "  none"
+        } else {
+            $runs | ForEach-Object { Write-Host "  $($_.Name)" }
+        }
+    } else {
+        Write-Host "Recent runs: none"
+    }
+}
+
+# Runs the registered project's Ralph entrypoint from the project root.
 function Invoke-RalphAutoProject {
     param(
         [string]$Root,
@@ -301,6 +375,9 @@ switch ($Command) {
     }
     "InitializeProject" {
         Initialize-RalphAutoProject -Root $WorkspaceRoot -Name $Project
+    }
+    "ReviewProject" {
+        Show-RalphAutoProjectReview -Root $WorkspaceRoot -Name $Project
     }
     "RunProject" {
         Invoke-RalphAutoProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -RequestedModel $Model

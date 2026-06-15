@@ -97,6 +97,12 @@ Codex registers the path, initializes Ralph files if needed, prepares `scripts\r
 
 Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If scope or acceptance needs to change, Codex should stop and ask the user instead of silently changing the plan.
 
+RA may use parallel subagents for read-only review, but the main RA flow owns all writes to `scripts\ralph\prd.json`, `scripts\ralph\progress.txt`, project files, and git commits. Use the helper to inspect a registered project without changing files:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
+```
+
 ### 1. Create a PRD
 
 Use the `prd` skill to generate a detailed requirements document:
