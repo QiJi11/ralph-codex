@@ -1,6 +1,6 @@
 ---
 name: ralph-auto
-description: "Run the natural-language Ralph autonomous workflow for product implementation requests. Use when the user asks to create, build, implement, complete, run, ship, or execute an MVP, feature, app, project, or autonomous Ralph workflow."
+description: "Run the natural-language Ralph autonomous workflow for product implementation requests. Use when the user says RA, Ralph Auto, run with RA, or asks to create, build, implement, complete, run, ship, or execute an MVP, feature, app, project, or autonomous Ralph workflow."
 user-invocable: true
 ---
 
@@ -9,6 +9,12 @@ user-invocable: true
 Turn a natural-language product request into a Ralph workspace run.
 
 Use this skill when the user asks Codex to create, build, implement, complete, run, ship, or iterate on a feature, MVP, app, project, or autonomous Ralph workflow, and they have not already provided a fully prepared `scripts\ralph\prd.json`.
+
+Treat `RA`, `ra`, `Ralph Auto`, and `ralph-auto` as the same trigger. Recommended user phrase:
+
+```text
+用 RA 跑 <project> 的 <task>
+```
 
 ## Defaults
 
@@ -21,10 +27,24 @@ Use this skill when the user asks Codex to create, build, implement, complete, r
 ## Required Flow
 
 1. Identify the target project and workspace.
-2. Generate or update a concise PRD for the requested work.
-3. Convert the PRD into `scripts\ralph\prd.json`.
-4. Run Ralph through the workspace entrypoint for that project.
-5. Report the project, workspace, PRD path, and Ralph command used.
+2. Write a short execution brief before running Ralph.
+3. Generate or update a concise PRD for the requested work.
+4. Convert the PRD into `scripts\ralph\prd.json`.
+5. Run Ralph through the workspace entrypoint for that project.
+6. Report the project, workspace, PRD path, and Ralph command used.
+
+## Execution Brief
+
+Before starting Ralph, state the execution contract:
+
+- Project
+- User goal
+- Assumptions
+- Story list
+- Acceptance checks
+- Max iterations
+
+Do not silently change scope, acceptance criteria, project, branch, or max iterations after the brief is set. If the work is blocked, infeasible, too broad, or needs changed criteria, stop and ask the user instead of rewriting the plan yourself.
 
 ## Project Resolution
 

@@ -76,8 +76,10 @@ Ralph Auto adds a natural-language Codex path that can register projects in a wo
 After installing Ralph Auto, ask Codex for the product outcome directly:
 
 ```
-Build an MVP for my registered project inventory-app that adds CSV import.
+用 RA 跑 inventory-app 的 CSV import MVP
 ```
+
+`RA` is the short alias for Ralph Auto. It tells Codex to write the execution brief, prepare `scripts\ralph\prd.json`, and run Ralph from the workspace entrypoint.
 
 For a registered project, Codex uses the workspace registry at `C:\Users\10531\RalphWorkspace\projects.json`, generates or updates the PRD, converts it to `scripts\ralph\prd.json`, and runs:
 
@@ -92,6 +94,8 @@ Implement the reporting MVP in D:\AtoC\文档\reporting-app with Ralph Auto.
 ```
 
 Codex registers the path, initializes Ralph files if needed, prepares `scripts\ralph\prd.json`, then runs the same workspace entrypoint.
+
+Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If scope or acceptance needs to change, Codex should stop and ask the user instead of silently changing the plan.
 
 ### 1. Create a PRD
 

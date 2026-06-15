@@ -25,8 +25,10 @@ Use `ralph-auto` as the recommended natural-language Codex entrypoint for worksp
 For a registered project, ask Codex for the outcome:
 
 ```text
-Build the CSV import MVP for inventory-app with Ralph Auto.
+用 RA 跑 inventory-app 的 CSV import MVP
 ```
+
+`RA` is the short alias for Ralph Auto. It should trigger the same workflow as saying `Ralph Auto`.
 
 For an unregistered local git project, include the path once:
 
@@ -39,6 +41,8 @@ Codex should generate or update the PRD, convert it to `scripts\ralph\prd.json`,
 ```powershell
 .\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
 ```
+
+Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If the scope, checks, or iteration budget need to change, Codex should stop and ask the user.
 
 ## Setup
 
