@@ -1,12 +1,12 @@
 {
   "name": "ralph-codex",
   "version": "1.0.0",
-  "description": "Skills and prompts for the Ralph autonomous Codex CLI task loop.",
+  "description": "Skills, prompts, and workspace helpers for the Ralph autonomous Codex CLI task loop.",
   "author": {
-    "name": "snarktank"
+    "name": "QiJi11"
   },
-  "homepage": "https://github.com/snarktank/ralph",
-  "repository": "https://github.com/snarktank/ralph",
+  "homepage": "https://github.com/QiJi11/ralph-codex",
+  "repository": "https://github.com/QiJi11/ralph-codex",
   "license": "MIT",
   "keywords": [
     "ralph",
@@ -21,16 +21,16 @@
   "interface": {
     "displayName": "Ralph Codex",
     "shortDescription": "Run PRD stories through a long-running Codex CLI loop",
-    "longDescription": "Ralph Codex converts PRDs into small JSON stories and runs fresh Codex CLI iterations until every story is complete, preserving memory through git history, progress.txt, prd.json, and AGENTS.md.",
-    "developerName": "snarktank",
+    "longDescription": "Ralph Codex is a Codex-first fork of Ralph that converts PRDs into small JSON stories and runs fresh Codex CLI iterations until every story is complete, preserving memory through git history, progress.txt, prd.json, and AGENTS.md.",
+    "developerName": "QiJi11",
     "category": "Coding",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/snarktank/ralph",
-    "privacyPolicyURL": "https://github.com/snarktank/ralph",
-    "termsOfServiceURL": "https://github.com/snarktank/ralph",
+    "websiteURL": "https://github.com/QiJi11/ralph-codex",
+    "privacyPolicyURL": "https://github.com/QiJi11/ralph-codex",
+    "termsOfServiceURL": "https://github.com/QiJi11/ralph-codex",
     "defaultPrompt": [
       "Create a PRD for this feature",
       "Convert this PRD to Ralph prd.json",

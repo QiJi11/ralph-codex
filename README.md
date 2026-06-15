@@ -18,6 +18,24 @@ This fork is based on [snarktank/ralph](https://github.com/snarktank/ralph) and 
 
 ## Setup
 
+### Quick Start For Codex CLI
+
+Clone this fork, install the skills and runner templates, then restart Codex:
+
+```powershell
+git clone https://github.com/QiJi11/ralph-codex
+Set-Location ralph-codex
+.\install-codex.ps1 -Force
+```
+
+After restart, ask Codex from any local project or Ralph workspace:
+
+```text
+用 RA 跑 inventory-app 的 CSV import MVP
+```
+
+The current supported surface is Codex CLI with local git repositories, PowerShell, and `RalphWorkspace`. Codex App/plugin support is planned separately; see `APP.md`.
+
 ### Install Into Codex
 
 Install the PRD/Ralph skills and runner templates into your Codex home:
@@ -313,3 +331,5 @@ PowerShell support is Codex-only.
 - [Original Ralph project](https://github.com/snarktank/ralph)
 - [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
 - [Codex CLI](https://github.com/openai/codex)
+- [Codex App and plugin plan](APP.md)
+- [CLI verification checklist](VERIFY.md)
