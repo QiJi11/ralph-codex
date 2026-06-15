@@ -1,0 +1,191 @@
+# Ralph Wiggum - Long-running Codex agent loop for PowerShell
+# Usage: .\ralph.ps1 [-MaxIterations 10] [-ProjectRoot <path>] [-RalphDir <path>] [-Model <model>]
+
+[CmdletBinding()]
+param(
+    [int]$MaxIterations = 10,
+    [string]$ProjectRoot = (Get-Location).Path,
+    [string]$RalphDir = $PSScriptRoot,
+    [string]$Model = "",
+    [switch]$DryRun
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+
+# Converts a Ralph branch name into a filesystem-safe feature folder name.
+function Get-RalphFeatureName {
+    param([string]$BranchName)
+
+    $name = $BranchName -replace '^ralph/', ''
+    $name = $name -replace '[^\w.-]+', '-'
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        return "unknown-feature"
+    }
+    return $name
+}
+
+# Creates the progress log with a standard header when it does not already exist.
+function Initialize-RalphProgress {
+    param([string]$ProgressFile)
+
+    if (-not (Test-Path -LiteralPath $ProgressFile)) {
+        "# Ralph Progress Log" | Set-Content -LiteralPath $ProgressFile -Encoding UTF8
+        "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $ProgressFile -Encoding UTF8
+        "---" | Add-Content -LiteralPath $ProgressFile -Encoding UTF8
+    }
+}
+
+# Reads and parses the Ralph PRD JSON file.
+function Read-RalphPrd {
+    param([string]$PrdFile)
+
+    if (-not (Test-Path -LiteralPath $PrdFile)) {
+        throw "Missing prd.json at $PrdFile"
+    }
+
+    return Get-Content -LiteralPath $PrdFile -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+# Archives prior run state when the requested PRD branch changes.
+function Invoke-RalphArchiveIfNeeded {
+    param(
+        [string]$PrdFile,
+        [string]$ProgressFile,
+        [string]$ArchiveDir,
+        [string]$LastBranchFile
+    )
+
+    if (-not (Test-Path -LiteralPath $PrdFile)) {
+        return
+    }
+
+    $prd = Read-RalphPrd -PrdFile $PrdFile
+    $currentBranch = [string]($prd.branchName)
+    if ([string]::IsNullOrWhiteSpace($currentBranch)) {
+        return
+    }
+
+    $lastBranch = ""
+    if (Test-Path -LiteralPath $LastBranchFile) {
+        $lastBranch = (Get-Content -LiteralPath $LastBranchFile -Raw -Encoding UTF8).Trim()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($lastBranch) -and $lastBranch -ne $currentBranch) {
+        $date = Get-Date -Format "yyyy-MM-dd"
+        $folderName = Get-RalphFeatureName -BranchName $lastBranch
+        $archiveFolder = Join-Path $ArchiveDir "$date-$folderName"
+
+        Write-Host "Archiving previous run: $lastBranch"
+        New-Item -ItemType Directory -Force -Path $archiveFolder | Out-Null
+        Copy-Item -LiteralPath $PrdFile -Destination (Join-Path $archiveFolder "prd.json") -Force
+        if (Test-Path -LiteralPath $ProgressFile) {
+            Copy-Item -LiteralPath $ProgressFile -Destination (Join-Path $archiveFolder "progress.txt") -Force
+        }
+
+        "# Ralph Progress Log" | Set-Content -LiteralPath $ProgressFile -Encoding UTF8
+        "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $ProgressFile -Encoding UTF8
+        "---" | Add-Content -LiteralPath $ProgressFile -Encoding UTF8
+    }
+
+    $currentBranch | Set-Content -LiteralPath $LastBranchFile -Encoding UTF8
+}
+
+# Runs one non-interactive Codex CLI iteration and captures its output.
+function Invoke-CodexIteration {
+    param(
+        [string]$ProjectRoot,
+        [string]$ScriptDir,
+        [string]$PrdFile,
+        [string]$ProgressFile,
+        [string]$CodexFile,
+        [string]$LogFile,
+        [string]$Model
+    )
+
+    $context = @"
+Ralph Runtime Context:
+- Script directory: $ScriptDir
+- PRD file: $PrdFile
+- Progress file: $ProgressFile
+- Invocation working directory: $ProjectRoot
+
+"@
+
+    $prompt = $context + (Get-Content -LiteralPath $CodexFile -Raw -Encoding UTF8)
+    $args = @(
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        $ProjectRoot
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Model)) {
+        $args += @("-m", $Model)
+    }
+
+    $args += "-"
+    $output = $prompt | & codex @args 2>&1
+    $output | Tee-Object -FilePath $LogFile
+    return ($output -join "`n")
+}
+
+$ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+$RalphDir = (Resolve-Path -LiteralPath $RalphDir).Path
+$PrdFile = Join-Path $RalphDir "prd.json"
+$ProgressFile = Join-Path $RalphDir "progress.txt"
+$ArchiveDir = Join-Path $RalphDir "archive"
+$LastBranchFile = Join-Path $RalphDir ".last-branch"
+$CodexFile = Join-Path $RalphDir "CODEX.md"
+$RunsDir = Join-Path $RalphDir "runs"
+
+if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
+    throw "codex CLI is not available on PATH"
+}
+
+if (-not (Test-Path -LiteralPath $CodexFile)) {
+    throw "Missing CODEX.md at $CodexFile"
+}
+
+if ($DryRun) {
+    Write-Host "Starting Ralph - Tool: codex - Max iterations: $MaxIterations"
+    Write-Host "Project root: $ProjectRoot"
+    Write-Host "Ralph dir: $RalphDir"
+    Write-Host "Dry run complete. No Ralph state was changed and no Codex iteration was started."
+    exit 0
+}
+
+Invoke-RalphArchiveIfNeeded -PrdFile $PrdFile -ProgressFile $ProgressFile -ArchiveDir $ArchiveDir -LastBranchFile $LastBranchFile
+Initialize-RalphProgress -ProgressFile $ProgressFile
+New-Item -ItemType Directory -Force -Path $RunsDir | Out-Null
+
+Write-Host "Starting Ralph - Tool: codex - Max iterations: $MaxIterations"
+Write-Host "Project root: $ProjectRoot"
+Write-Host "Ralph dir: $RalphDir"
+
+for ($i = 1; $i -le $MaxIterations; $i++) {
+    Write-Host ""
+    Write-Host "==============================================================="
+    Write-Host "  Ralph Iteration $i of $MaxIterations (codex)"
+    Write-Host "==============================================================="
+
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $logFile = Join-Path $RunsDir "$stamp-iteration-$i.log"
+    $output = Invoke-CodexIteration -ProjectRoot $ProjectRoot -ScriptDir $RalphDir -PrdFile $PrdFile -ProgressFile $ProgressFile -CodexFile $CodexFile -LogFile $logFile -Model $Model
+
+    if ($output -match "<promise>COMPLETE</promise>") {
+        Write-Host ""
+        Write-Host "Ralph completed all tasks."
+        Write-Host "Completed at iteration $i of $MaxIterations"
+        exit 0
+    }
+
+    Write-Host "Iteration $i complete. Continuing..."
+    Start-Sleep -Seconds 2
+}
+
+Write-Host ""
+Write-Host "Ralph reached max iterations ($MaxIterations) without completing all tasks."
+Write-Host "Check $ProgressFile for status."
+exit 1

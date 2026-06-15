@@ -2,6 +2,7 @@
 prd.json
 progress.txt
 .last-branch
+runs/
 
 # Archive is optional to commit
 # archive/
@@ -9,5 +10,6 @@ progress.txt
 # OS files
 .DS_Store
 
-#Claude
+# Tool state
 .claude/
+.codex/
