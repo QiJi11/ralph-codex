@@ -17,7 +17,7 @@ if ([string]::IsNullOrWhiteSpace($CodexHome)) {
 
 $RepoRoot = $PSScriptRoot
 $SkillsSource = Join-Path $RepoRoot "skills"
-$RunnerSourceFiles = @("ralph.ps1", "ralph.sh", "CODEX.md", "prd.json.example", "install-codex.ps1")
+$RunnerSourceFiles = @("ralph.ps1", "ralph.sh", "CODEX.md", "prd.json.example", "install-codex.ps1", "workspace.ps1", "workspace.example.json", "WORKSPACE.md")
 $SkillsDest = Join-Path $CodexHome "skills"
 $RunnerDest = Join-Path $CodexHome "vendor_imports\ralph-codex"
 
@@ -70,14 +70,16 @@ foreach ($file in $RunnerSourceFiles) {
 }
 
 New-Item -ItemType Directory -Force -Path $CodexHome | Out-Null
-Copy-RalphDirectory -Source (Join-Path $SkillsSource "prd") -Destination (Join-Path $SkillsDest "prd") -Force:$Force
-Copy-RalphDirectory -Source (Join-Path $SkillsSource "ralph") -Destination (Join-Path $SkillsDest "ralph") -Force:$Force
+Get-ChildItem -LiteralPath $SkillsSource -Directory | ForEach-Object {
+    Copy-RalphDirectory -Source $_.FullName -Destination (Join-Path $SkillsDest $_.Name) -Force:$Force
+}
 Copy-RalphRunnerFiles -Destination $RunnerDest -Files $RunnerSourceFiles
 
 Write-Host "Installed Ralph Codex into $CodexHome"
 Write-Host "Skills:"
-Write-Host "  $(Join-Path $SkillsDest 'prd')"
-Write-Host "  $(Join-Path $SkillsDest 'ralph')"
+Get-ChildItem -LiteralPath $SkillsSource -Directory | ForEach-Object {
+    Write-Host "  $(Join-Path $SkillsDest $_.Name)"
+}
 Write-Host "Runner templates:"
 Write-Host "  $RunnerDest"
 Write-Host "Restart Codex to pick up new skills."

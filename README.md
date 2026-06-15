@@ -30,6 +30,7 @@ By default this installs to `$env:CODEX_HOME` when set, otherwise `%USERPROFILE%
 
 - `skills\prd`
 - `skills\ralph`
+- `skills\run-ralph`
 - `vendor_imports\ralph-codex`
 
 Restart Codex after installing so the skills are discovered.
@@ -85,6 +86,52 @@ Load the ralph skill and convert tasks/prd-[feature-name].md to scripts/ralph/pr
 
 This creates `prd.json` with user stories structured for autonomous execution.
 
+## Workspace MVP
+
+Use a Ralph workspace when you want one root folder to manage multiple local projects.
+
+Recommended layout:
+
+```text
+RalphWorkspace\
+  projects.json
+  workspace.ps1
+  projects\
+  tasks\
+  archive\
+```
+
+Initialize a workspace:
+
+```powershell
+Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\workspace.ps1" .
+.\workspace.ps1 init
+```
+
+Register an existing local git project:
+
+```powershell
+.\workspace.ps1 add-project -Name my-app -Path C:\path\to\my-app
+```
+
+Install Ralph into that project:
+
+```powershell
+.\workspace.ps1 init-project -Project my-app
+```
+
+Run Ralph for that project:
+
+```powershell
+.\workspace.ps1 run -Project my-app -MaxIterations 10
+```
+
+Natural language entry from the workspace root:
+
+```text
+Use Ralph Codex to run my-app for 10 iterations.
+```
+
 ### 3. Run Ralph with Codex
 
 Windows PowerShell:
@@ -124,6 +171,10 @@ Ralph will:
 - `runs/` - Generated per-iteration logs.
 - `skills/prd/` - Skill for generating PRDs.
 - `skills/ralph/` - Skill for converting PRDs to JSON.
+- `skills/run-ralph/` - Skill for running a named project from a Ralph workspace.
+- `workspace.ps1` - Workspace runner for multiple local projects.
+- `workspace.example.json` - Example workspace project registry.
+- `WORKSPACE.md` - Workspace usage guide.
 - `.codex-plugin/` - Optional Codex plugin manifest.
 - `.claude-plugin/` - Legacy Claude Code marketplace manifest.
 - `flowchart/` - Interactive visualization of how Ralph works.
