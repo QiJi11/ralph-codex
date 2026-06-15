@@ -1,8 +1,8 @@
 # Ralph working files (generated during runs)
-prd.json
-progress.txt
-.last-branch
-runs/
+/prd.json
+/progress.txt
+/.last-branch
+/runs/
 
 # Archive is optional to commit
 # archive/

@@ -95,7 +95,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
   else
     # Codex CLI: run non-interactively with approvals and sandbox disabled for autonomous operation.
-    OUTPUT=$({
+    set +e
+    TMP_OUTPUT=$(mktemp)
+    {
       cat <<EOF
 Ralph Runtime Context:
 - Script directory: $SCRIPT_DIR
@@ -105,7 +107,15 @@ Ralph Runtime Context:
 
 EOF
       cat "$SCRIPT_DIR/CODEX.md"
-    } | codex exec --dangerously-bypass-approvals-and-sandbox -C "$PWD" - 2>&1 | tee /dev/stderr) || true
+    } | codex exec --dangerously-bypass-approvals-and-sandbox -C "$PWD" - 2>&1 | tee "$TMP_OUTPUT"
+    CODEX_STATUS=${PIPESTATUS[1]}
+    OUTPUT=$(cat "$TMP_OUTPUT")
+    rm -f "$TMP_OUTPUT"
+    set -e
+    if [[ "$CODEX_STATUS" -ne 0 ]]; then
+      echo "Codex iteration failed with exit code $CODEX_STATUS"
+      exit "$CODEX_STATUS"
+    fi
   fi
   
   # Check for completion signal

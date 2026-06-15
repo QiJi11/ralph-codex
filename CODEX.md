@@ -10,16 +10,19 @@ Use the `Ralph Runtime Context` block prepended by the runner as the source of t
 
 1. Read the PRD JSON at the runtime `PRD file`.
 2. Read the progress log at the runtime `Progress file`. Check `## Codebase Patterns` first if it exists.
-3. Check that git is on the branch named by PRD `branchName`; if not, check it out or create it from the repository default branch.
+3. Check git state before changing branches:
+   - If the worktree has uncommitted changes unrelated to the current Ralph story, stop and report the blocker in `progress.txt`.
+   - If the current branch is not PRD `branchName`, create or switch to it.
+   - Create new story branches from the repository default branch. Prefer `origin/HEAD`, then `main`, then `master`. Stop and report the blocker if none can be identified.
 4. Pick exactly one story: the highest priority `userStories[]` item where `passes` is `false`.
 5. Implement only that story.
 6. Run the project quality checks required by the story and by repository conventions, such as typecheck, lint, tests, or build.
-7. For UI stories, verify the change in a browser when browser tools are available. If unavailable, record the missing manual verification in `progress.txt` and do not claim browser verification passed.
+7. For UI stories, verify the change in a browser when browser tools are available. If the acceptance criteria require browser verification and browser tools are unavailable, do not set `passes: true`; record the missing verification in `progress.txt` and stop unless the PRD explicitly allows manual verification as sufficient.
 8. If the story passes, update the PRD JSON to set that story's `passes` to `true`; update `notes` only when useful.
 9. Append a progress entry to `progress.txt`.
 10. Commit the completed story with message `feat: [Story ID] - [Story Title]`.
 
-Do not mark a story as passing before implementation and quality checks are complete. Do not commit broken code.
+Do not mark a story as passing before implementation, required quality checks, and required UI/browser verification are complete. Do not commit broken code.
 
 ## Progress Report Format
 

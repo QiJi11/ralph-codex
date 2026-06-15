@@ -11,6 +11,7 @@ This fork is based on [snarktank/ralph](https://github.com/snarktank/ralph) and 
 - [Codex CLI](https://github.com/openai/codex) installed and authenticated.
 - A git repository for your target project.
 - PowerShell 7+ on Windows, or Bash on macOS/Linux/WSL.
+- Bash runner dependencies: `jq`, `sed`, `grep`, `tee`, and `seq`.
 - Optional legacy tools:
   - [Amp CLI](https://ampcode.com)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
@@ -27,6 +28,8 @@ Copy-Item .\prd.json.example scripts\ralph\
 ```
 
 Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
+Do not run directly from `prd.json.example`; generate `scripts\ralph\prd.json` with the `ralph` skill first.
+Project-level `scripts\ralph\prd.json` and `scripts\ralph\progress.txt` should be committed as Ralph state.
 
 For Bash-compatible environments:
 
@@ -39,6 +42,8 @@ chmod +x scripts/ralph/ralph.sh
 ```
 
 Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
+Do not run directly from `prd.json.example`; generate `scripts/ralph/prd.json` with the `ralph` skill first.
+Project-level `scripts/ralph/prd.json` and `scripts/ralph/progress.txt` should be committed as Ralph state.
 
 ## Workflow
 
