@@ -54,3 +54,5 @@ npm run dev
 - Memory persists via git history, `progress.txt`, `prd.json`, and generated logs
 - Stories should be small enough to complete in one context window
 - Always update AGENTS.md with discovered patterns for future iterations
+- `ralph-auto.ps1` is the PowerShell-first workspace entrypoint; it stores project registrations in `<WorkspaceRoot>\projects.json`.
+- Ralph Auto resolves vendor imports from `CODEX_HOME\vendor_imports\ralph-codex`, falling back to `%USERPROFILE%\.codex\vendor_imports\ralph-codex`.
