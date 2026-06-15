@@ -14,6 +14,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
+if ($MaxIterations -lt 1 -and -not $DryRun) {
+    throw "MaxIterations must be 1 or greater unless -DryRun is specified"
+}
+
 # Converts a Ralph branch name into a filesystem-safe feature folder name.
 function Get-RalphFeatureName {
     param([string]$BranchName)
@@ -127,8 +131,22 @@ Ralph Runtime Context:
 
     $args += "-"
     $output = $prompt | & codex @args 2>&1
-    $output | Tee-Object -FilePath $LogFile
-    return ($output -join "`n")
+    $status = $LASTEXITCODE
+    $output | Set-Content -LiteralPath $LogFile -Encoding UTF8
+    if ($status -ne 0) {
+        $output | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+    } else {
+        $outputText = $output -join "`n"
+        if ($outputText -match "<promise>COMPLETE</promise>") {
+            Write-Host "<promise>COMPLETE</promise>"
+        } else {
+            Write-Host "Codex iteration completed. Full output saved to $LogFile"
+        }
+    }
+    return ,([pscustomobject]@{
+        Output = ($output -join "`n")
+        ExitCode = $status
+    })
 }
 
 $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
@@ -156,6 +174,7 @@ if ($DryRun) {
     exit 0
 }
 
+$null = Read-RalphPrd -PrdFile $PrdFile
 Invoke-RalphArchiveIfNeeded -PrdFile $PrdFile -ProgressFile $ProgressFile -ArchiveDir $ArchiveDir -LastBranchFile $LastBranchFile
 Initialize-RalphProgress -ProgressFile $ProgressFile
 New-Item -ItemType Directory -Force -Path $RunsDir | Out-Null
@@ -172,9 +191,14 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
 
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $logFile = Join-Path $RunsDir "$stamp-iteration-$i.log"
-    $output = Invoke-CodexIteration -ProjectRoot $ProjectRoot -ScriptDir $RalphDir -PrdFile $PrdFile -ProgressFile $ProgressFile -CodexFile $CodexFile -LogFile $logFile -Model $Model
+    $result = Invoke-CodexIteration -ProjectRoot $ProjectRoot -ScriptDir $RalphDir -PrdFile $PrdFile -ProgressFile $ProgressFile -CodexFile $CodexFile -LogFile $logFile -Model $Model
 
-    if ($output -match "<promise>COMPLETE</promise>") {
+    if ($result.ExitCode -ne 0) {
+        Write-Host "Codex iteration failed with exit code $($result.ExitCode)"
+        exit $result.ExitCode
+    }
+
+    if ($result.Output -match "<promise>COMPLETE</promise>") {
         Write-Host ""
         Write-Host "Ralph completed all tasks."
         Write-Host "Completed at iteration $i of $MaxIterations"
