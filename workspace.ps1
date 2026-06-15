@@ -20,6 +20,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
+if ($Command -eq "init") {
+    New-Item -ItemType Directory -Force -Path $WorkspaceRoot | Out-Null
+}
+
 $WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
 $ProjectsFile = Join-Path $WorkspaceRoot "projects.json"
 $VendorRoot = Join-Path $env:USERPROFILE ".codex\vendor_imports\ralph-codex"
