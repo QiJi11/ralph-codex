@@ -119,11 +119,15 @@ EOF
   fi
   
   # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>" && [ "$(jq '[.userStories[] | select(.passes != true)] | length' "$PRD_FILE")" -eq 0 ]; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
+  fi
+
+  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+    echo "Codex emitted completion signal, but prd.json still has unfinished stories. Continuing..."
   fi
   
   echo "Iteration $i complete. Continuing..."

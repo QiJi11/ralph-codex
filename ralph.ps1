@@ -149,6 +149,15 @@ Ralph Runtime Context:
     })
 }
 
+# Returns true only when every PRD story is marked as passing.
+function Test-RalphPrdComplete {
+    param([string]$PrdFile)
+
+    $prd = Read-RalphPrd -PrdFile $PrdFile
+    $unfinished = @($prd.userStories | Where-Object { $_.passes -ne $true })
+    return $unfinished.Count -eq 0
+}
+
 $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $RalphDir = (Resolve-Path -LiteralPath $RalphDir).Path
 $PrdFile = Join-Path $RalphDir "prd.json"
@@ -198,11 +207,15 @@ for ($i = 1; $i -le $MaxIterations; $i++) {
         exit $result.ExitCode
     }
 
-    if ($result.Output -match "<promise>COMPLETE</promise>") {
+    if ($result.Output -match "<promise>COMPLETE</promise>" -and (Test-RalphPrdComplete -PrdFile $PrdFile)) {
         Write-Host ""
         Write-Host "Ralph completed all tasks."
         Write-Host "Completed at iteration $i of $MaxIterations"
         exit 0
+    }
+
+    if ($result.Output -match "<promise>COMPLETE</promise>") {
+        Write-Host "Codex emitted completion signal, but prd.json still has unfinished stories. Continuing..."
     }
 
     Write-Host "Iteration $i complete. Continuing..."
