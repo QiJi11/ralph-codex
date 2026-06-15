@@ -26,7 +26,8 @@ if ($Command -eq "init") {
 
 $WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
 $ProjectsFile = Join-Path $WorkspaceRoot "projects.json"
-$VendorRoot = Join-Path $env:USERPROFILE ".codex\vendor_imports\ralph-codex"
+$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$VendorRoot = Join-Path $CodexHome "vendor_imports\ralph-codex"
 
 # Reads projects.json and returns the parsed workspace config.
 function Read-WorkspaceConfig {

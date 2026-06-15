@@ -40,10 +40,12 @@ Restart Codex after installing so the skills are discovered.
 Copy the Ralph files into your project:
 
 ```powershell
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$ralphVendor = Join-Path $codexHome "vendor_imports\ralph-codex"
 New-Item -ItemType Directory -Force -Path scripts\ralph
-Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\ralph.ps1" scripts\ralph\
-Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\CODEX.md" scripts\ralph\
-Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\prd.json.example" scripts\ralph\
+Copy-Item (Join-Path $ralphVendor "ralph.ps1") scripts\ralph\
+Copy-Item (Join-Path $ralphVendor "CODEX.md") scripts\ralph\
+Copy-Item (Join-Path $ralphVendor "prd.json.example") scripts\ralph\
 ```
 
 Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
@@ -104,7 +106,8 @@ RalphWorkspace\
 Initialize a workspace:
 
 ```powershell
-Copy-Item "$env:USERPROFILE\.codex\vendor_imports\ralph-codex\workspace.ps1" .
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+Copy-Item (Join-Path $codexHome "vendor_imports\ralph-codex\workspace.ps1") .
 .\workspace.ps1 init
 ```
 
