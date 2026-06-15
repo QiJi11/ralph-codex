@@ -195,7 +195,7 @@ function Initialize-RalphAutoProject {
 
     $runnerSource = Join-Path $RepositoryRoot "scripts\ralph\ralph.ps1"
     if (-not (Test-Path -LiteralPath $runnerSource)) {
-        $runnerSource = Join-Path (Get-RalphVendorRoot) "scripts\ralph\ralph.ps1"
+        $runnerSource = Join-Path (Get-RalphVendorRoot) "ralph.ps1"
     }
 
     if (-not (Test-Path -LiteralPath $runnerSource)) {
@@ -206,7 +206,7 @@ function Initialize-RalphAutoProject {
 
     $codexSource = Join-Path $RepositoryRoot "scripts\ralph\CODEX.md"
     if (-not (Test-Path -LiteralPath $codexSource)) {
-        $codexSource = Join-Path (Get-RalphVendorRoot) "scripts\ralph\CODEX.md"
+        $codexSource = Join-Path (Get-RalphVendorRoot) "CODEX.md"
     }
 
     if (Test-Path -LiteralPath $codexSource) {
@@ -215,7 +215,7 @@ function Initialize-RalphAutoProject {
 
     $exampleSource = Join-Path $RepositoryRoot "scripts\ralph\prd.json.example"
     if (-not (Test-Path -LiteralPath $exampleSource)) {
-        $exampleSource = Join-Path (Get-RalphVendorRoot) "scripts\ralph\prd.json.example"
+        $exampleSource = Join-Path (Get-RalphVendorRoot) "prd.json.example"
     }
 
     if (Test-Path -LiteralPath $exampleSource) {
