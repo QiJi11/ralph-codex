@@ -23,6 +23,34 @@ $ErrorActionPreference = "Stop"
 
 $RepositoryRoot = $PSScriptRoot
 
+# Resolves the git executable even before a fresh shell has picked up PATH changes.
+function Resolve-RalphAutoGitCommand {
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if ($null -ne $gitCommand) {
+        return $gitCommand.Source
+    }
+
+    $programRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+
+    $candidates = @()
+    foreach ($programRoot in $programRoots) {
+        $candidates += (Join-Path $programRoot "Git\cmd\git.exe")
+        $candidates += (Join-Path $programRoot "Git\bin\git.exe")
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+
+    throw "git is required but was not found in PATH or standard Windows install paths."
+}
+
+$GitCommand = Resolve-RalphAutoGitCommand
+
 # Returns the Codex home directory used for vendor imports.
 function Get-CodexHome {
     if (-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
@@ -119,7 +147,7 @@ function Resolve-RalphAutoProjectPath {
 function Assert-RalphAutoGitProject {
     param([string]$Path)
 
-    $gitDir = & git -C $Path rev-parse --git-dir 2>$null
+    $gitDir = & $GitCommand -C $Path rev-parse --git-dir 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitDir)) {
         throw "ProjectPath is not a git working tree: $Path"
     }
@@ -171,7 +199,7 @@ function Resolve-RalphAutoTemplateFile {
 function Assert-RalphAutoCleanGit {
     param([string]$Path)
 
-    $status = @(& git -C $Path status --short)
+    $status = @(& $GitCommand -C $Path status --short)
     if ($LASTEXITCODE -ne 0) {
         throw "Cannot read git status for $Path"
     }
@@ -185,7 +213,7 @@ function Assert-RalphAutoCleanGit {
 function Get-RalphAutoGitStatus {
     param([string]$Path)
 
-    $status = @(& git -C $Path status --short)
+    $status = @(& $GitCommand -C $Path status --short)
     if ($LASTEXITCODE -ne 0) {
         throw "Cannot read git status for $Path"
     }
@@ -318,13 +346,13 @@ function Show-RalphAutoProjectReview {
     Write-Host "Workspace: $Root"
     Write-Host "Ralph dir: $ralphDir"
 
-    $branch = (& git -C $projectRoot branch --show-current 2>$null)
+    $branch = (& $GitCommand -C $projectRoot branch --show-current 2>$null)
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($branch)) {
         Write-Host "Git branch: $branch"
     }
 
     Write-Host "Git status:"
-    $status = @(& git -C $projectRoot status --short 2>$null)
+    $status = @(& $GitCommand -C $projectRoot status --short 2>$null)
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  unavailable"
     } elseif ($status.Count -eq 0) {
@@ -493,7 +521,7 @@ function Invoke-RalphAutoParallelProject {
     $runId = Get-Date -Format "yyyyMMdd-HHmmss"
     $safeProject = Get-RalphAutoSafeName -Value $Name
     $taskRoot = Join-Path $Root "tasks\$safeProject\$runId"
-    $baseBranch = (& git -C $projectRoot branch --show-current)
+    $baseBranch = (& $GitCommand -C $projectRoot branch --show-current)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baseBranch)) {
         throw "Cannot determine current branch for $projectRoot"
     }
@@ -525,7 +553,7 @@ function Invoke-RalphAutoParallelProject {
         $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
         $worktreePath = Join-Path $taskRoot $storyId
 
-        & git -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
+        & $GitCommand -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to create worktree for $($story.id)"
         }
@@ -599,18 +627,18 @@ function Invoke-RalphAutoParallelProject {
     }
 
     foreach ($item in $jobs) {
-        & git -C $item.Worktree restore --source $baseBranch -- scripts/ralph 2>$null
-        & git -C $item.Worktree clean -fd -- scripts/ralph | Out-Host
+        & $GitCommand -C $item.Worktree restore --source $baseBranch -- scripts/ralph 2>$null
+        & $GitCommand -C $item.Worktree clean -fd -- scripts/ralph | Out-Host
         if ($LASTEXITCODE -eq 0) {
-            $stateStatus = @(& git -C $item.Worktree status --short -- scripts/ralph)
+            $stateStatus = @(& $GitCommand -C $item.Worktree status --short -- scripts/ralph)
             if ($stateStatus.Count -gt 0) {
-                & git -C $item.Worktree add scripts/ralph | Out-Host
-                & git -C $item.Worktree commit -m "chore: keep worker Ralph state out of merge" | Out-Host
+                & $GitCommand -C $item.Worktree add scripts/ralph | Out-Host
+                & $GitCommand -C $item.Worktree commit -m "chore: keep worker Ralph state out of merge" | Out-Host
             }
         }
 
         Write-Host "Merging $($item.Branch)"
-        & git -C $projectRoot merge --no-ff $item.Branch -m "merge: $($item.StoryId) parallel RA worker" | Out-Host
+        & $GitCommand -C $projectRoot merge --no-ff $item.Branch -m "merge: $($item.StoryId) parallel RA worker" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Merge conflict or merge failure. Worktree preserved: $($item.Worktree)"
             throw "Failed to merge $($item.Branch)"
@@ -649,13 +677,13 @@ function Invoke-RalphAutoParallelProject {
             "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
         }
 
-        & git -C $projectRoot add scripts\ralph\prd.json scripts\ralph\progress.txt | Out-Host
-        & git -C $projectRoot commit -m "chore: update parallel RA state" | Out-Host
+        & $GitCommand -C $projectRoot add scripts\ralph\prd.json scripts\ralph\progress.txt | Out-Host
+        & $GitCommand -C $projectRoot commit -m "chore: update parallel RA state" | Out-Host
     }
 
     if ($RemoveSuccessfulWorktrees) {
         foreach ($item in $jobs) {
-            & git -C $projectRoot worktree remove $item.Worktree --force | Out-Host
+            & $GitCommand -C $projectRoot worktree remove $item.Worktree --force | Out-Host
         }
     }
 

@@ -24,10 +24,10 @@ Use parallel mode only when the user explicitly says `并行`, `parallel`, or as
 
 ## Defaults
 
-- Default workspace: `C:\Users\10531\RalphWorkspace`
+- Default workspace: `C:\Users\<current-user>\RalphWorkspace`
 - Default shell: Windows PowerShell (`pwsh`)
 - Prefer PowerShell commands and `.ps1` helpers. Avoid bash-only commands.
-- Do not run Ralph directly from `C:\Users\10531`; run it through a workspace project entrypoint.
+- Do not run Ralph directly from a user profile directory; run it through a workspace project entrypoint.
 - Use the current directory only when it is clearly the target project and no workspace/project name is specified.
 
 ## Required Flow
@@ -74,7 +74,7 @@ Unsafe parallel tasks:
 For a local read-only review, run:
 
 ```powershell
-.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app'
+.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app'
 ```
 
 ## Parallel Write Mode
@@ -91,7 +91,7 @@ Only use `RunParallel` after the PRD exists and stories intended for parallel ex
 RunParallel defaults to 2 workers:
 
 ```powershell
-.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app' -MaxWorkers 2 -MaxIterations 3
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -MaxWorkers 2 -MaxIterations 3
 ```
 
 Rules:
@@ -124,7 +124,7 @@ Use this flow when the user names a project that is already registered in the wo
 Use this flow when the user gives a local path or the current directory is clearly a git project but it is not registered.
 
 1. Confirm the path is a git working tree.
-2. Register the project in `C:\Users\10531\RalphWorkspace`.
+2. Register the project in `C:\Users\<current-user>\RalphWorkspace`.
 3. Initialize Ralph files for the project if they are missing.
 4. Generate or update the PRD.
 5. Convert it to `scripts\ralph\prd.json`.
@@ -151,23 +151,23 @@ Use this flow when the request describes work but does not identify a project.
 Initialize a workspace:
 
 ```powershell
-.\ralph-auto.ps1 -Command InitWorkspace -WorkspaceRoot 'C:\Users\10531\RalphWorkspace'
+.\ralph-auto.ps1 -Command InitWorkspace -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
 ```
 
 List registered projects:
 
 ```powershell
-.\ralph-auto.ps1 -Command ListProjects -WorkspaceRoot 'C:\Users\10531\RalphWorkspace'
+.\ralph-auto.ps1 -Command ListProjects -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
 ```
 
 Register a local git project:
 
 ```powershell
-.\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app' -ProjectPath 'D:\AtoC\文档\my-app'
+.\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -ProjectPath 'D:\AtoC\Documents\my-app'
 ```
 
 Run Ralph for a workspace project:
 
 ```powershell
-.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app' -MaxIterations 10
+.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -MaxIterations 10
 ```
