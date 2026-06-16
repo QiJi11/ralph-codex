@@ -33,7 +33,7 @@ For a registered project, ask Codex for the outcome:
 For an unregistered local git project, include the path once:
 
 ```text
-Implement the admin dashboard MVP in D:\AtoC\文档\admin-app with Ralph Auto.
+用 RA 跑 D:\AtoC\文档\admin-app 的 admin dashboard MVP
 ```
 
 Codex should generate or update the PRD, convert it to `scripts\ralph\prd.json`, then run the workspace helper:
@@ -91,6 +91,14 @@ The helper provides the same workspace actions with one stable entrypoint:
 ```
 
 `RunParallel -DryRun` is the minimum safe smoke check for parallel mode. It should print selected story IDs, branch names, and worktree paths without creating worktrees or launching workers. If no story is ready, it should return a clear validation error explaining that stories need `parallelSafe: true` and satisfied `dependsOn`.
+
+Preview Ralph context cleanup without changing files:
+
+```powershell
+.\ralph-auto.ps1 -Command CleanupContext -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -KeepLastRuns 5 -DryRun
+```
+
+`CleanupContext` preserves the current `scripts\ralph\prd.json`, refuses real cleanup when the project worktree is dirty, and can archive `progress.txt` with `-ArchiveProgress`.
 
 ## MVP Limits
 

@@ -64,6 +64,24 @@ Confirm `ralph.ps1` keeps stable and runtime-specific prompt content separated:
 - `New-RalphDynamicPromptTail` appends project paths, PRD path, progress path, and log path after the stable prefix.
 - Timestamps, log paths, project paths, iteration numbers, and story-specific data must not be moved into the stable prefix.
 
+## CleanupContext Smoke Checks
+
+Preview cleanup for a project that already has `scripts\ralph\prd.json`:
+
+```powershell
+.\ralph-auto.ps1 -Command CleanupContext -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -KeepLastRuns 5 -DryRun
+```
+
+Expected result: prints the current PRD path, run logs to keep or remove, and whether `progress.txt` would be archived. `-DryRun` must not change files.
+
+Run real cleanup only when the project git worktree is clean:
+
+```powershell
+.\ralph-auto.ps1 -Command CleanupContext -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -KeepLastRuns 5 -ArchiveProgress
+```
+
+Expected result: old run logs are removed, current `prd.json` is preserved, and `progress.txt` is archived then reset to a minimal summary.
+
 ## End State
 
 ```powershell

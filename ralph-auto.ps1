@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel")]
+    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel", "CleanupContext")]
     [string]$Command,
 
     [string]$WorkspaceRoot = (Join-Path $env:USERPROFILE "RalphWorkspace"),
@@ -10,8 +10,10 @@ param(
     [int]$MaxIterations = 10,
     [string]$Model = "",
     [int]$MaxWorkers = 2,
+    [int]$KeepLastRuns = 5,
     [switch]$NoMerge,
     [switch]$CleanupOnSuccess,
+    [switch]$ArchiveProgress,
     [switch]$DryRun
 )
 
@@ -177,6 +179,18 @@ function Assert-RalphAutoCleanGit {
     if ($status.Count -gt 0) {
         throw "Project worktree must be clean before RunParallel: $Path"
     }
+}
+
+# Returns the git status lines for a working tree.
+function Get-RalphAutoGitStatus {
+    param([string]$Path)
+
+    $status = @(& git -C $Path status --short)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cannot read git status for $Path"
+    }
+
+    return $status
 }
 
 # Copies Ralph runner template files into a project path.
@@ -648,6 +662,99 @@ function Invoke-RalphAutoParallelProject {
     Write-Host "RunParallel completed."
 }
 
+# Previews or removes old Ralph runtime context without touching user code.
+function Invoke-RalphAutoContextCleanup {
+    param(
+        [string]$Root,
+        [string]$Name,
+        [int]$RunsToKeep,
+        [bool]$ShouldArchiveProgress,
+        [bool]$PreviewOnly
+    )
+
+    Assert-RalphAutoValue -Name "Project" -Value $Name
+    if ($RunsToKeep -lt 0) {
+        throw "KeepLastRuns must be 0 or greater"
+    }
+
+    $registry = Read-RalphAutoRegistry -Root $Root
+    $projectRecord = Get-RalphAutoProject -Registry $registry -Name $Name
+    $projectRoot = Resolve-RalphAutoProjectPath -Path $projectRecord.path
+    $ralphDir = Join-Path $projectRoot "scripts\ralph"
+    $prdPath = Join-Path $ralphDir "prd.json"
+    $progressPath = Join-Path $ralphDir "progress.txt"
+    $runsDir = Join-Path $ralphDir "runs"
+    $archiveDir = Join-Path $ralphDir "archive"
+
+    if (-not (Test-Path -LiteralPath $ralphDir -PathType Container)) {
+        throw "Missing Ralph directory for CleanupContext: $ralphDir"
+    }
+
+    if (-not (Test-Path -LiteralPath $prdPath)) {
+        throw "Missing current PRD; refusing cleanup: $prdPath"
+    }
+
+    $gitStatus = @(Get-RalphAutoGitStatus -Path $projectRoot)
+    if ($gitStatus.Count -gt 0 -and -not $PreviewOnly) {
+        Write-Host "Project worktree has uncommitted changes; refusing CleanupContext without -DryRun."
+        $gitStatus | ForEach-Object { Write-Host "  $_" }
+        throw "Project worktree must be clean before CleanupContext"
+    }
+
+    Write-Host "CleanupContext project: $Name"
+    Write-Host "Project root: $projectRoot"
+    Write-Host "Ralph dir: $ralphDir"
+    Write-Host "DryRun: $PreviewOnly"
+    Write-Host "KeepLastRuns: $RunsToKeep"
+    Write-Host "ArchiveProgress: $ShouldArchiveProgress"
+    Write-Host "Current PRD preserved: $prdPath"
+
+    $runFiles = @()
+    if (Test-Path -LiteralPath $runsDir) {
+        $runFiles = @(Get-ChildItem -LiteralPath $runsDir -File | Sort-Object LastWriteTime -Descending)
+    }
+
+    $keptRuns = @($runFiles | Select-Object -First $RunsToKeep)
+    $removedRuns = @($runFiles | Select-Object -Skip $RunsToKeep)
+    Write-Host "Run logs found: $($runFiles.Count)"
+    $keptRuns | ForEach-Object { Write-Host "  Keep run: $($_.FullName)" }
+    $removedRuns | ForEach-Object { Write-Host "  Remove run: $($_.FullName)" }
+
+    if (Test-Path -LiteralPath $progressPath) {
+        if ($ShouldArchiveProgress) {
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+            $archivePath = Join-Path $archiveDir "progress-$stamp.txt"
+            Write-Host "Archive progress: $progressPath -> $archivePath"
+        } else {
+            Write-Host "Progress preserved: $progressPath"
+        }
+    } else {
+        Write-Host "Progress missing: $progressPath"
+    }
+
+    if ($PreviewOnly) {
+        Write-Host "DryRun: no files were changed."
+        return
+    }
+
+    foreach ($run in $removedRuns) {
+        Remove-Item -LiteralPath $run.FullName -Force
+    }
+
+    if ($ShouldArchiveProgress -and (Test-Path -LiteralPath $progressPath)) {
+        New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $archivePath = Join-Path $archiveDir "progress-$stamp.txt"
+        Copy-Item -LiteralPath $progressPath -Destination $archivePath -Force
+        "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
+        "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        "Archived previous progress to: $archivePath" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    }
+
+    Write-Host "CleanupContext completed."
+}
+
 switch ($Command) {
     "InitWorkspace" {
         Initialize-RalphAutoWorkspace -Root $WorkspaceRoot
@@ -672,5 +779,8 @@ switch ($Command) {
     }
     "RunParallel" {
         Invoke-RalphAutoParallelProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -Workers $MaxWorkers -RequestedModel $Model -SkipMerge:$NoMerge.IsPresent -RemoveSuccessfulWorktrees:$CleanupOnSuccess.IsPresent -PreviewOnly:$DryRun.IsPresent
+    }
+    "CleanupContext" {
+        Invoke-RalphAutoContextCleanup -Root $WorkspaceRoot -Name $Project -RunsToKeep $KeepLastRuns -ShouldArchiveProgress:$ArchiveProgress.IsPresent -PreviewOnly:$DryRun.IsPresent
     }
 }
