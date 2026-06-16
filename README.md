@@ -93,22 +93,22 @@ Ralph Auto adds a natural-language Codex path that can register projects in a wo
 
 After installing Ralph Auto, ask Codex for the product outcome directly:
 
-```
+```text
 用 RA 跑 inventory-app 的 CSV import MVP
 ```
 
 `RA` is the short alias for Ralph Auto. It tells Codex to write the execution brief, prepare `scripts\ralph\prd.json`, and run Ralph from the workspace entrypoint.
 
-For a registered project, Codex uses the workspace registry at `C:\Users\10531\RalphWorkspace\projects.json`, generates or updates the PRD, converts it to `scripts\ralph\prd.json`, and runs:
+For a registered project, Codex uses the workspace registry at `C:\Users\<current-user>\RalphWorkspace\projects.json`, generates or updates the PRD, converts it to `scripts\ralph\prd.json`, and runs:
 
 ```powershell
-& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
 ```
 
 For an unregistered local git project, include the path once:
 
-```
-Implement the reporting MVP in D:\AtoC\文档\reporting-app with Ralph Auto.
+```text
+用 RA 跑 D:\AtoC\文档\reporting-app 的 reporting MVP
 ```
 
 Codex registers the path, initializes Ralph files if needed, prepares `scripts\ralph\prd.json`, then runs the same workspace entrypoint.
@@ -118,13 +118,13 @@ Before running Ralph, Codex should state the execution brief: project, goal, ass
 RA may use parallel subagents for read-only review, but the main RA flow owns all writes to `scripts\ralph\prd.json`, `scripts\ralph\progress.txt`, project files, and git commits. Use the helper to inspect a registered project without changing files:
 
 ```powershell
-& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app'
 ```
 
 For write-capable multi-agent work, say `用 RA 并行跑 ...`. Parallel mode uses isolated git worktrees and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`:
 
 ```powershell
-& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
 ```
 
 Use `-DryRun` to preview selected stories, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.

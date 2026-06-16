@@ -75,7 +75,7 @@ Notes:
 Ask Codex App to run a safe dry run against a registered local project:
 
 ```powershell
-.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
 ```
 
 Expected result:

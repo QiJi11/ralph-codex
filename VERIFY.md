@@ -43,16 +43,26 @@ Expected result: TypeScript and Vite build complete successfully.
 List installed workspace projects:
 
 ```powershell
-.\ralph-auto.ps1 -Command ListProjects -WorkspaceRoot 'C:\Users\10531\RalphWorkspace'
+.\ralph-auto.ps1 -Command ListProjects -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
 ```
 
 Preview a parallel run for a project that already has `scripts\ralph\prd.json`:
 
 ```powershell
-.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'my-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
 ```
 
 Expected result: either selected stories and worktree paths are printed, or a clear validation error explains what is missing.
+
+For a successful dry-run selection, the project PRD must contain at least one unfinished story with `parallelSafe: true`; any `dependsOn` entries for that story must already be marked complete. The output must not create worktrees or start workers when `-DryRun` is set.
+
+## Prompt Cache Structure
+
+Confirm `ralph.ps1` keeps stable and runtime-specific prompt content separated:
+
+- `New-RalphStablePromptPrefix` reads `CODEX.md` and appears before runtime context.
+- `New-RalphDynamicPromptTail` appends project paths, PRD path, progress path, and log path after the stable prefix.
+- Timestamps, log paths, project paths, iteration numbers, and story-specific data must not be moved into the stable prefix.
 
 ## End State
 

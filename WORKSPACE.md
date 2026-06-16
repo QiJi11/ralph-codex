@@ -39,7 +39,7 @@ Implement the admin dashboard MVP in D:\AtoC\文档\admin-app with Ralph Auto.
 Codex should generate or update the PRD, convert it to `scripts\ralph\prd.json`, then run the workspace helper:
 
 ```powershell
-.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
 ```
 
 Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If the scope, checks, or iteration budget need to change, Codex should stop and ask the user.
@@ -64,6 +64,8 @@ Register an existing local git project:
 .\workspace.ps1 add-project -Name my-app -Path C:\path\to\my-app
 ```
 
+On a new computer, register each real project again with its new local path. Do not copy `projects.json` entries from another machine, because old absolute paths will not be valid. Registered project paths must be git repositories.
+
 Install Ralph into that project:
 
 ```powershell
@@ -81,12 +83,14 @@ Run Ralph for that project:
 The helper provides the same workspace actions with one stable entrypoint:
 
 ```powershell
-.\ralph-auto.ps1 -Command InitWorkspace -WorkspaceRoot 'C:\Users\10531\RalphWorkspace'
-.\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -ProjectPath 'D:\AtoC\文档\inventory-app'
-.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app'
-.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
-.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\10531\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
+.\ralph-auto.ps1 -Command InitWorkspace -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
+.\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -ProjectPath 'D:\AtoC\文档\inventory-app'
+.\ralph-auto.ps1 -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app'
+.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
 ```
+
+`RunParallel -DryRun` is the minimum safe smoke check for parallel mode. It should print selected story IDs, branch names, and worktree paths without creating worktrees or launching workers. If no story is ready, it should return a clear validation error explaining that stories need `parallelSafe: true` and satisfied `dependsOn`.
 
 ## MVP Limits
 
