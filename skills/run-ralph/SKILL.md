@@ -28,11 +28,13 @@ Use the user's requested iteration count when provided.
 
 ## Rules
 
-- Do not run Ralph from `C:\Users\10531` or another broad home directory.
+- Do not run Ralph from the user profile root or another broad home directory.
 - Do not guess across unrelated repositories; use `projects.json`.
 - Do not edit `projects.json` unless the user asks to add or change a project.
 - If the requested project is missing, show `.\workspace.ps1 list` output and ask for the correct project name.
 - Treat `workspace.ps1` as the entrypoint; do not directly call project-level `scripts\ralph\ralph.ps1` unless `workspace.ps1` is unavailable.
+- Ordinary `RunProject` may continue on a dirty worktree.
+- `RunParallel` and non-dry-run `CleanupContext` still require a clean worktree.
 
 ## Natural Language Examples
 

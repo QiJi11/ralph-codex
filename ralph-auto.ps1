@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel", "CleanupContext")]
+    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "CreateAdhocProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel", "CleanupContext")]
     [string]$Command,
 
     [string]$WorkspaceRoot = (Join-Path $env:USERPROFILE "RalphWorkspace"),
@@ -78,6 +78,9 @@ function Ensure-RalphAutoWorkspace {
     param([string]$Root)
 
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root "projects") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root "tasks") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root "archive") | Out-Null
     $registryPath = Get-RalphAutoRegistryPath -Root $Root
 
     if (-not (Test-Path -LiteralPath $registryPath)) {
@@ -219,6 +222,110 @@ function Get-RalphAutoGitStatus {
     }
 
     return $status
+}
+
+# Creates a standard Ralph progress log when it is missing.
+function Initialize-RalphAutoProgressLog {
+    param([string]$ProgressPath)
+
+    if (-not (Test-Path -LiteralPath $ProgressPath)) {
+        "# Ralph Progress Log" | Set-Content -LiteralPath $ProgressPath -Encoding UTF8
+        "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+        "---" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    }
+}
+
+# Returns the current git branch name when available.
+function Get-RalphAutoGitBranch {
+    param([string]$Path)
+
+    $branch = (& $GitCommand -C $Path branch --show-current 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cannot determine git branch for $Path"
+    }
+
+    return [string]$branch
+}
+
+# Appends a dirty-baseline note so continuation runs are visible in Ralph state.
+function Add-RalphAutoDirtyBaselineNote {
+    param(
+        [string]$ProjectRoot,
+        [string]$ProjectName
+    )
+
+    $status = @(Get-RalphAutoGitStatus -Path $ProjectRoot)
+    if ($status.Count -eq 0) {
+        return
+    }
+
+    $ralphDir = Join-Path $ProjectRoot "scripts\ralph"
+    $progressPath = Join-Path $ralphDir "progress.txt"
+    $prdPath = Join-Path $ralphDir "prd.json"
+    $branch = Get-RalphAutoGitBranch -Path $ProjectRoot
+    Initialize-RalphAutoProgressLog -ProgressPath $progressPath
+
+    "" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - Dirty baseline continuation" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    "- Project: $ProjectName" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    "- Branch: $branch" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    "- Mode: RunProject allowed dirty continuation; no auto-commit, no branch switch, no RunParallel." | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    "- Git status:" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    foreach ($line in $status) {
+        "  $line" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    }
+    "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+
+    if (Test-Path -LiteralPath $prdPath) {
+        $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $note = "Dirty baseline continuation on branch $branch at $(Get-Date -Format o)."
+        if (Test-RalphAutoProperty -Object $prd -Name "dirtyBaseline") {
+            $prd.dirtyBaseline = $note
+        } else {
+            $prd | Add-Member -NotePropertyName "dirtyBaseline" -NotePropertyValue $note
+        }
+
+        $prd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $prdPath -Encoding UTF8
+    }
+}
+
+# Creates a minimal runnable PRD for a newly created ad-hoc Ralph project.
+function Initialize-RalphAutoAdhocState {
+    param(
+        [string]$ProjectRoot,
+        [string]$ProjectName
+    )
+
+    $ralphDir = Join-Path $ProjectRoot "scripts\ralph"
+    $prdPath = Join-Path $ralphDir "prd.json"
+    $progressPath = Join-Path $ralphDir "progress.txt"
+    $branchName = "ralph/adhoc/$((Get-RalphAutoSafeName -Value $ProjectName))"
+
+    if (-not (Test-Path -LiteralPath $prdPath)) {
+        $template = [ordered]@{
+            project = $ProjectName
+            branchName = $branchName
+            description = "Ad-hoc Ralph project bootstrap"
+            userStories = @(
+                [ordered]@{
+                    id = "US-001"
+                    title = "Replace bootstrap PRD with the current execution plan"
+                    description = "Update scripts\\ralph\\prd.json from the latest plan before running Ralph."
+                    acceptanceCriteria = @(
+                        "Replace the placeholder PRD with concrete stories derived from the intended task.",
+                        "Keep passes set to false until work is complete."
+                    )
+                    priority = 1
+                    passes = $false
+                    notes = "Bootstrap story generated by CreateAdhocProject."
+                }
+            )
+        }
+
+        $template | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $prdPath -Encoding UTF8
+    }
+
+    Initialize-RalphAutoProgressLog -ProgressPath $progressPath
 }
 
 # Returns worker task directories that CleanupContext can safely remove or report.
@@ -388,6 +495,40 @@ function Add-RalphAutoProject {
     Write-Host "Path: $resolvedPath"
 }
 
+# Creates and registers an ad-hoc Ralph project inside the workspace.
+function New-RalphAutoAdhocProject {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
+
+    $projectName = $Name
+    if ([string]::IsNullOrWhiteSpace($projectName)) {
+        $projectName = "ra-adhoc-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    }
+
+    $safeName = Get-RalphAutoSafeName -Value $projectName
+    $projectRoot = Join-Path $Root "projects\$safeName"
+    if (Test-Path -LiteralPath $projectRoot) {
+        throw "Ad-hoc project already exists: $projectRoot"
+    }
+
+    New-Item -ItemType Directory -Force -Path $projectRoot | Out-Null
+    & $GitCommand -C $projectRoot init | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to initialize git repository: $projectRoot"
+    }
+
+    Add-RalphAutoProject -Root $Root -Name $safeName -Path $projectRoot
+    Copy-RalphAutoTemplates -ProjectRoot $projectRoot
+    Initialize-RalphAutoAdhocState -ProjectRoot $projectRoot -ProjectName $safeName
+
+    Write-Host "Created ad-hoc project: $safeName"
+    Write-Host "Project root: $projectRoot"
+    Write-Host "PRD: $(Join-Path $projectRoot 'scripts\ralph\prd.json')"
+    Write-Host "Progress: $(Join-Path $projectRoot 'scripts\ralph\progress.txt')"
+}
+
 # Copies Ralph runner files into a registered project when they are missing.
 function Initialize-RalphAutoProject {
     param(
@@ -509,6 +650,13 @@ function Invoke-RalphAutoProject {
     $userRoot = (Resolve-Path -LiteralPath $env:USERPROFILE).Path
     if ((Resolve-Path -LiteralPath $projectRoot).Path -eq $userRoot) {
         throw "Refusing to run Ralph directly from the user profile root: $userRoot"
+    }
+
+    $gitStatus = @(Get-RalphAutoGitStatus -Path $projectRoot)
+    if ($gitStatus.Count -gt 0) {
+        Write-Host "Dirty continuation detected for RunProject. Continuing without auto-commit or branch changes."
+        $gitStatus | ForEach-Object { Write-Host "  $_" }
+        Add-RalphAutoDirtyBaselineNote -ProjectRoot $projectRoot -ProjectName $Name
     }
 
     $args = @(
@@ -894,6 +1042,9 @@ switch ($Command) {
     }
     "AddProject" {
         Add-RalphAutoProject -Root $WorkspaceRoot -Name $Project -Path $ProjectPath
+    }
+    "CreateAdhocProject" {
+        New-RalphAutoAdhocProject -Root $WorkspaceRoot -Name $Project
     }
     "InitProject" {
         Initialize-RalphAutoProject -Root $WorkspaceRoot -Name $Project

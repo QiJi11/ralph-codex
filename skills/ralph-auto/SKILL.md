@@ -10,13 +10,20 @@ Turn a natural-language product request into a Ralph workspace run.
 
 Use this skill when the user asks Codex to create, build, implement, complete, run, ship, or iterate on a feature, MVP, app, project, or autonomous Ralph workflow, and they have not already provided a fully prepared `scripts\ralph\prd.json`.
 
-Treat `RA`, `ra`, `Ralph Auto`, and `ralph-auto` as the same trigger. Recommended user phrase:
+Treat `RA`, `ra`, `Ralph Auto`, and `ralph-auto` as the same trigger. Also treat these as direct Plan Handoff triggers when they refer to the immediately preceding plan:
+
+- `RA 上面的内容`
+- `用 RA 跑刚才的 plan`
+- `把上面的计划转成 RA 跑`
+- `RA 执行刚才的计划`
+
+Recommended user phrase:
 
 ```text
 用 RA 跑 <project> 的 <task>
 ```
 
-Use parallel mode only when the user explicitly says `并行`, `parallel`, or asks for multiple RA agents:
+Use parallel mode only when the user explicitly says `并行`, `parallel`, asks for multiple RA agents, or explicitly asks for isolated parallel execution:
 
 ```text
 用 RA 并行跑 <project> 的 <task>
@@ -29,13 +36,16 @@ Use parallel mode only when the user explicitly says `并行`, `parallel`, or as
 - Prefer PowerShell commands and `.ps1` helpers. Avoid bash-only commands.
 - Do not run Ralph directly from a user profile directory; run it through a workspace project entrypoint.
 - Use the current directory only when it is clearly the target project and no workspace/project name is specified.
+- `RunProject` allows dirty continuation for the current baseline.
+- `RunParallel` requires a clean worktree because it creates worktrees, commits, and merges.
+- `CleanupContext` requires a clean worktree unless it is `-DryRun`.
 
 ## Required Flow
 
 1. Identify the target project and workspace.
 2. Write a short execution brief before running Ralph.
 3. Run optional read-only review before execution when useful.
-4. Generate or update a concise PRD for the requested work.
+4. Generate or update a concise PRD for the requested work, including converting the immediately preceding plan when using Plan Handoff.
 5. Convert the PRD into `scripts\ralph\prd.json`.
 6. Run Ralph through the workspace entrypoint for that project.
 7. Report the project, workspace, PRD path, and Ralph command used.
@@ -64,11 +74,11 @@ Safe parallel tasks:
 - Inspect current Ralph state with `ReviewProject`.
 - Review logs and summarize blockers.
 
-Unsafe parallel tasks:
+Unsafe parallel tasks for read-only subagents:
 
 - Editing project files.
 - Editing Ralph state files.
-- Running `RunProject`.
+- Running `RunProject` from the subagent itself.
 - Committing, merging, rebasing, or pushing.
 
 For a local read-only review, run:
@@ -103,6 +113,20 @@ Rules:
 - If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
 - Use `-DryRun` before risky parallel runs to show selected stories and worktree paths.
 
+## Dirty Continuation Policy
+
+Use ordinary `RunProject` when the project is already dirty and the user is continuing the same line of work, including `继续 RA`, `RA 上面的内容`, and `用 RA 跑刚才的 plan`.
+
+Rules:
+
+- Do not ask the user to commit first for ordinary continuation.
+- Do not switch branches.
+- Do not auto-commit the baseline.
+- Do not upgrade the run into `RunParallel`.
+- Record the dirty baseline in the execution brief and `scripts\ralph\progress.txt`.
+
+If the user explicitly asks for isolation, parallel execution, auto-commit, or merge-based fanout while the project is dirty, stop and ask them to commit, stash, or switch back to ordinary `RunProject`.
+
 ## Prompt Cache Hygiene
 
 Ralph places stable `CODEX.md` instructions before runtime-specific context. Keep durable rules in `CODEX.md`, and put changing details in `scripts\ralph\prd.json`, `progress.txt`, or the execution brief. Do not rewrite `CODEX.md` for each run unless the durable operating rules actually changed.
@@ -135,8 +159,31 @@ Use this flow when the user gives a local path or the current directory is clear
 Use this flow when the request describes work but does not identify a project.
 
 1. Check whether the current directory is a git project and can be used as the target.
-2. If the current directory is not clearly the target, ask one short blocking question for the project name or local git path.
-3. After the project is known, follow the registered or unregistered project flow.
+2. If the request is a Plan Handoff trigger and the current directory is not a git project, create an ad-hoc project at `C:\Users\<current-user>\RalphWorkspace\projects\ra-adhoc-YYYYMMDD-HHMMSS`.
+3. Register the ad-hoc project, initialize Ralph files, and write `scripts\ralph\prd.json` plus `progress.txt`.
+4. If it is not a Plan Handoff request and the current directory is not clearly the target, ask one short blocking question for the project name or local git path.
+5. After the project is known, follow the registered, unregistered, or ad-hoc project flow.
+
+## Plan Handoff
+
+When the user says `RA 上面的内容`, `用 RA 跑刚才的 plan`, `把上面的计划转成 RA 跑`, or `RA 执行刚才的计划`:
+
+1. Use the immediately preceding plan as the source of truth.
+2. Prefer the current directory if it is a git project.
+3. If the user names a registered project, use the workspace registration.
+4. If there is no git project and no project name, create an ad-hoc project with:
+
+```powershell
+.\ralph-auto.ps1 -Command CreateAdhocProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
+```
+
+5. Convert the plan into `scripts\ralph\prd.json`.
+6. Initialize `scripts\ralph\progress.txt` if it is missing.
+7. Run:
+
+```powershell
+.\ralph-auto.ps1 -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project '<resolved-project>' -MaxIterations 10
+```
 
 ## PRD Rules
 
@@ -164,6 +211,12 @@ Register a local git project:
 
 ```powershell
 .\ralph-auto.ps1 -Command AddProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -ProjectPath 'D:\AtoC\Documents\my-app'
+```
+
+Create an ad-hoc project for plan handoff from a non-git directory:
+
+```powershell
+.\ralph-auto.ps1 -Command CreateAdhocProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace'
 ```
 
 Run Ralph for a workspace project:
