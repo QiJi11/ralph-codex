@@ -56,6 +56,14 @@ Expected result: either selected stories and worktree paths are printed, or a cl
 
 For a successful dry-run selection, the project PRD must contain at least one unfinished story with `parallelSafe: true`; any `dependsOn` entries for that story must already be marked complete. The output must not create worktrees or start workers when `-DryRun` is set.
 
+Run a real parallel smoke only against an isolated test project:
+
+```powershell
+.\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'ra-parallel-real-smoke' -MaxWorkers 2 -MaxIterations 1 -CleanupOnSuccess
+```
+
+Expected result: worker branches are created from git worktrees under `RalphWorkspace\tasks`, each worker reaches `codex exec`, successful branches merge back into the main project, `prd.json` and `progress.txt` are updated, and `-CleanupOnSuccess` removes the worker worktrees.
+
 ## Prompt Cache Structure
 
 Confirm `ralph.ps1` keeps stable and runtime-specific prompt content separated:
@@ -74,6 +82,8 @@ Preview cleanup for a project that already has `scripts\ralph\prd.json`:
 
 Expected result: prints the current PRD path, run logs to keep or remove, and whether `progress.txt` would be archived. `-DryRun` must not change files.
 
+When prior parallel worker runs left empty task directories under `RalphWorkspace\tasks\<project>`, `CleanupContext -DryRun` should also list those task directories as removable cleanup candidates.
+
 Run real cleanup only when the project git worktree is clean:
 
 ```powershell
@@ -81,6 +91,8 @@ Run real cleanup only when the project git worktree is clean:
 ```
 
 Expected result: old run logs are removed, current `prd.json` is preserved, and `progress.txt` is archived then reset to a minimal summary.
+
+For worker cleanup, real cleanup may remove empty task directories and clean worker worktrees. It must keep and report any worker directory that is dirty, not a git worktree, or cannot be validated.
 
 ## End State
 

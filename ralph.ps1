@@ -18,6 +18,28 @@ if ($MaxIterations -lt 1 -and -not $DryRun) {
     throw "MaxIterations must be 1 or greater unless -DryRun is specified"
 }
 
+# Resolves Codex CLI even before a fresh shell has picked up npm PATH changes.
+function Resolve-RalphCodexCommand {
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+    if ($null -ne $codexCommand) {
+        return $codexCommand.Source
+    }
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $candidates += (Join-Path $env:APPDATA "npm\codex.cmd")
+        $candidates += (Join-Path $env:APPDATA "npm\codex.ps1")
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "codex CLI is required but was not found in PATH or the npm global bin directory."
+}
+
 # Converts a Ralph branch name into a filesystem-safe feature folder name.
 function Get-RalphFeatureName {
     param([string]$BranchName)
@@ -171,7 +193,7 @@ function Invoke-CodexIteration {
     }
 
     $args += "-"
-    $output = $prompt | & codex @args 2>&1
+    $output = $prompt | & $CodexCommand @args 2>&1
     $status = $LASTEXITCODE
     $logDirectory = Split-Path -Parent $LogFile
     if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
@@ -211,10 +233,7 @@ $ArchiveDir = Join-Path $RalphDir "archive"
 $LastBranchFile = Join-Path $RalphDir ".last-branch"
 $CodexFile = Join-Path $RalphDir "CODEX.md"
 $RunsDir = Join-Path $RalphDir "runs"
-
-if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
-    throw "codex CLI is not available on PATH"
-}
+$CodexCommand = Resolve-RalphCodexCommand
 
 if (-not (Test-Path -LiteralPath $CodexFile)) {
     throw "Missing CODEX.md at $CodexFile"

@@ -221,6 +221,90 @@ function Get-RalphAutoGitStatus {
     return $status
 }
 
+# Returns worker task directories that CleanupContext can safely remove or report.
+function Get-RalphAutoCleanupTaskCandidates {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
+
+    $safeProject = Get-RalphAutoSafeName -Value $Name
+    $projectTaskRoot = Join-Path $Root "tasks\$safeProject"
+    if (-not (Test-Path -LiteralPath $projectTaskRoot -PathType Container)) {
+        return @()
+    }
+
+    $candidates = @()
+    $runDirs = @(Get-ChildItem -LiteralPath $projectTaskRoot -Directory | Sort-Object LastWriteTime -Descending)
+    foreach ($runDir in $runDirs) {
+        $children = @(Get-ChildItem -LiteralPath $runDir.FullName -Force)
+        if ($children.Count -eq 0) {
+            $candidates += [pscustomobject]@{
+                Path = $runDir.FullName
+                Kind = "empty-run-directory"
+                SafeToRemove = $true
+                Reason = "No worker directories remain."
+            }
+            continue
+        }
+
+        $safeWorkers = @()
+        $blockedWorkers = @()
+        foreach ($workerDir in @($children | Where-Object { $_.PSIsContainer })) {
+            $gitDir = & $GitCommand -C $workerDir.FullName rev-parse --git-dir 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitDir)) {
+                $blockedWorkers += "$($workerDir.FullName) is not a git worktree."
+                continue
+            }
+
+            $status = @(& $GitCommand -C $workerDir.FullName status --short)
+            if ($LASTEXITCODE -ne 0) {
+                $blockedWorkers += "$($workerDir.FullName) git status is unavailable."
+                continue
+            }
+
+            if ($status.Count -gt 0) {
+                $blockedWorkers += "$($workerDir.FullName) has uncommitted changes."
+                continue
+            }
+
+            $safeWorkers += $workerDir.FullName
+        }
+
+        if ($safeWorkers.Count -gt 0) {
+            foreach ($workerPath in $safeWorkers) {
+                $candidates += [pscustomobject]@{
+                    Path = $workerPath
+                    Kind = "clean-worker-worktree"
+                    SafeToRemove = $true
+                    Reason = "Worker git worktree is clean."
+                }
+            }
+        }
+
+        if ($blockedWorkers.Count -gt 0) {
+            $candidates += [pscustomobject]@{
+                Path = $runDir.FullName
+                Kind = "blocked-run-directory"
+                SafeToRemove = $false
+                Reason = ($blockedWorkers -join " ")
+            }
+        }
+    }
+
+    $remainingChildren = @(Get-ChildItem -LiteralPath $projectTaskRoot -Force)
+    if ($remainingChildren.Count -eq 0) {
+        $candidates += [pscustomobject]@{
+            Path = $projectTaskRoot
+            Kind = "empty-project-task-directory"
+            SafeToRemove = $true
+            Reason = "No task run directories remain."
+        }
+    }
+
+    return $candidates
+}
+
 # Copies Ralph runner template files into a project path.
 function Copy-RalphAutoTemplates {
     param([string]$ProjectRoot)
@@ -748,6 +832,13 @@ function Invoke-RalphAutoContextCleanup {
     $keptRuns | ForEach-Object { Write-Host "  Keep run: $($_.FullName)" }
     $removedRuns | ForEach-Object { Write-Host "  Remove run: $($_.FullName)" }
 
+    $taskCandidates = @(Get-RalphAutoCleanupTaskCandidates -Root $Root -Name $Name)
+    $removableTasks = @($taskCandidates | Where-Object { $_.SafeToRemove -eq $true })
+    $blockedTasks = @($taskCandidates | Where-Object { $_.SafeToRemove -ne $true })
+    Write-Host "Worker task cleanup candidates: $($taskCandidates.Count)"
+    $removableTasks | ForEach-Object { Write-Host "  Remove task $($_.Kind): $($_.Path)" }
+    $blockedTasks | ForEach-Object { Write-Host "  Keep task $($_.Kind): $($_.Path) - $($_.Reason)" }
+
     if (Test-Path -LiteralPath $progressPath) {
         if ($ShouldArchiveProgress) {
             $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -767,6 +858,17 @@ function Invoke-RalphAutoContextCleanup {
 
     foreach ($run in $removedRuns) {
         Remove-Item -LiteralPath $run.FullName -Force
+    }
+
+    foreach ($task in $removableTasks) {
+        if ($task.Kind -eq "clean-worker-worktree") {
+            & $GitCommand -C $projectRoot worktree remove $task.Path --force | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to remove worker worktree: $($task.Path)"
+            }
+        } else {
+            Remove-Item -LiteralPath $task.Path -Recurse -Force
+        }
     }
 
     if ($ShouldArchiveProgress -and (Test-Path -LiteralPath $progressPath)) {

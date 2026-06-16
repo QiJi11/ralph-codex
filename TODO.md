@@ -33,7 +33,7 @@ MIT license and attribution to `snarktank/ralph`.
 
 ## P1 - Recommended For This Version
 
-- Add or document a minimal `RunParallel` smoke flow:
+- Add or document a minimal `RunParallel` smoke flow. Status: done for dry-run and real isolated smoke:
   - PRD stories must set `parallelSafe: true`.
   - `dependsOn` must be satisfied before workers run.
   - Workers must use isolated git worktrees.
@@ -78,6 +78,11 @@ Initial requirements:
 - Never delete the current `scripts\ralph\prd.json`.
 - Never destroy the necessary summary in the current `progress.txt`.
 - Never delete uncommitted important state.
+
+Status: v1 is implemented for `runs` cleanup, `progress.txt` archive/reset, and
+dirty-project refusal. v2 is implemented for worker task cleanup preview and
+safe removal of empty task directories or clean worker worktrees. Dirty,
+unvalidated, or non-git worker directories are reported and preserved.
 
 Possible CLI shape:
 
