@@ -173,6 +173,10 @@ function Invoke-CodexIteration {
     $args += "-"
     $output = $prompt | & codex @args 2>&1
     $status = $LASTEXITCODE
+    $logDirectory = Split-Path -Parent $LogFile
+    if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
+        New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+    }
     $output | Set-Content -LiteralPath $LogFile -Encoding UTF8
     if ($status -ne 0) {
         $output | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }

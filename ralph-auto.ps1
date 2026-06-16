@@ -4,7 +4,7 @@ param(
     [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel")]
     [string]$Command,
 
-    [string]$WorkspaceRoot = "C:\Users\10531\RalphWorkspace",
+    [string]$WorkspaceRoot = (Join-Path $env:USERPROFILE "RalphWorkspace"),
     [string]$Project = "",
     [string]$ProjectPath = "",
     [int]$MaxIterations = 10,
