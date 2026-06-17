@@ -179,6 +179,380 @@ function Test-RalphAutoProperty {
     return $null -ne $Object.PSObject.Properties[$Name]
 }
 
+# Returns the normalized ID for a Ralph subtask.
+function New-RalphAutoSubtaskId {
+    param(
+        [string]$StoryId,
+        [int]$Index
+    )
+
+    return "$StoryId-ST-{0:D3}" -f $Index
+}
+
+# Returns true when a story has explicit subtasks.
+function Test-RalphAutoHasSubtasks {
+    param([object]$Story)
+
+    if (-not (Test-RalphAutoProperty -Object $Story -Name "subtasks")) {
+        return $false
+    }
+
+    return @($Story.subtasks).Count -gt 0
+}
+
+# Returns the normalized file/touch/state arrays for a subtask.
+function ConvertTo-RalphAutoStringArray {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return @()
+    }
+
+    return @($Value | ForEach-Object {
+        $item = [string]$_
+        if (-not [string]::IsNullOrWhiteSpace($item)) {
+            $item.Trim()
+        }
+    } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+# Returns a conservative subtask payload for a story that lacks explicit subtasks.
+function New-RalphAutoDefaultSubtask {
+    param([object]$Story)
+
+    $defaultTouch = "story/$([string]$Story.id)"
+    $stateWrites = @()
+    $fileBudget = 3
+    $parallelSafe = $false
+
+    return [pscustomobject]@{
+        id = (New-RalphAutoSubtaskId -StoryId ([string]$Story.id) -Index 1)
+        title = [string]$Story.title
+        description = [string]$Story.description
+        acceptanceCriteria = @($Story.acceptanceCriteria)
+        priority = [int]$Story.priority
+        passes = ($Story.passes -eq $true)
+        notes = ""
+        dependsOn = @()
+        parallelSafe = $parallelSafe
+        estimatedFiles = @()
+        touches = @($defaultTouch)
+        stateWrites = $stateWrites
+        fileBudget = $fileBudget
+        splitRequired = $false
+        sourceStoryId = [string]$Story.id
+    }
+}
+
+# Splits a large story into smaller subtasks using acceptance criteria and heuristics.
+function Split-RalphAutoStoryIntoSubtasks {
+    param([object]$Story)
+
+    $criteria = @($Story.acceptanceCriteria | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $nonQualityCriteria = @($criteria | Where-Object { $_ -notmatch 'Typecheck passes|Tests pass|Verify in browser' })
+    $qualityCriteria = @($criteria | Where-Object { $_ -match 'Typecheck passes|Tests pass|Verify in browser' })
+
+    $subtasks = @()
+    $index = 1
+    foreach ($criterion in $nonQualityCriteria) {
+        $lower = $criterion.ToLowerInvariant()
+        $touches = @("story/$([string]$Story.id)")
+        $stateWrites = @()
+        $parallelSafe = $true
+        $fileBudget = 3
+
+        if ($lower -match 'migration|column|table|database|schema') {
+            $touches = @("db/schema")
+            $stateWrites = @("migration")
+            $parallelSafe = $false
+            $fileBudget = 2
+        } elseif ($lower -match 'api|server|action|service|endpoint') {
+            $touches = @("backend/service")
+        } elseif ($lower -match 'ui|page|modal|button|dropdown|badge|browser') {
+            $touches = @("ui/component")
+            $parallelSafe = $false
+        } elseif ($lower -match 'config|route|build|manifest|package') {
+            $touches = @("config/global")
+            $stateWrites = @("shared-config")
+            $parallelSafe = $false
+            $fileBudget = 2
+        }
+
+        $subtasks += [pscustomobject]@{
+            id = (New-RalphAutoSubtaskId -StoryId ([string]$Story.id) -Index $index)
+            title = "$([string]$Story.title) - Step $index"
+            description = $criterion
+            acceptanceCriteria = @($criterion) + $qualityCriteria
+            priority = [int]$Story.priority
+            passes = $false
+            notes = "Auto-split from oversized story $([string]$Story.id)."
+            dependsOn = @()
+            parallelSafe = $parallelSafe
+            estimatedFiles = @()
+            touches = $touches
+            stateWrites = $stateWrites
+            fileBudget = $fileBudget
+            splitRequired = $false
+            sourceStoryId = [string]$Story.id
+        }
+        $index++
+    }
+
+    if (@($subtasks).Count -gt 1) {
+        for ($i = 1; $i -lt @($subtasks).Count; $i++) {
+            $current = $subtasks[$i]
+            $previous = $subtasks[$i - 1]
+            if (@($current.stateWrites).Count -gt 0 -or @($previous.stateWrites).Count -gt 0 -or @(@($current.touches) | Where-Object { @($previous.touches) -contains $_ }).Count -gt 0) {
+                $current.dependsOn = @([string]$previous.id)
+                $current.parallelSafe = $false
+            }
+        }
+    }
+
+    if (@($subtasks).Count -eq 0) {
+        return @((New-RalphAutoDefaultSubtask -Story $Story))
+    }
+
+    return $subtasks
+}
+
+# Ensures every story contains normalized subtasks.
+function ConvertTo-RalphAutoNormalizedStories {
+    param([object[]]$Stories)
+
+    $normalized = @()
+    foreach ($story in @($Stories | Sort-Object priority)) {
+        $storyCopy = $story | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $subtasks = @()
+
+        if (Test-RalphAutoHasSubtasks -Story $storyCopy) {
+            $index = 1
+            foreach ($subtask in @($storyCopy.subtasks | Sort-Object priority)) {
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "id") -or [string]::IsNullOrWhiteSpace([string]$subtask.id)) {
+                    $subtask | Add-Member -NotePropertyName "id" -NotePropertyValue (New-RalphAutoSubtaskId -StoryId ([string]$storyCopy.id) -Index $index)
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "priority")) {
+                    $subtask | Add-Member -NotePropertyName "priority" -NotePropertyValue $storyCopy.priority
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "passes")) {
+                    $subtask | Add-Member -NotePropertyName "passes" -NotePropertyValue $false
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "notes")) {
+                    $subtask | Add-Member -NotePropertyName "notes" -NotePropertyValue ""
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "dependsOn")) {
+                    $subtask | Add-Member -NotePropertyName "dependsOn" -NotePropertyValue @()
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "parallelSafe")) {
+                    $subtask | Add-Member -NotePropertyName "parallelSafe" -NotePropertyValue $false
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "estimatedFiles")) {
+                    $subtask | Add-Member -NotePropertyName "estimatedFiles" -NotePropertyValue @()
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "touches")) {
+                    $subtask | Add-Member -NotePropertyName "touches" -NotePropertyValue @("story/$([string]$storyCopy.id)")
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "stateWrites")) {
+                    $subtask | Add-Member -NotePropertyName "stateWrites" -NotePropertyValue @()
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "fileBudget")) {
+                    $subtask | Add-Member -NotePropertyName "fileBudget" -NotePropertyValue 3
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "splitRequired")) {
+                    $subtask | Add-Member -NotePropertyName "splitRequired" -NotePropertyValue $false
+                }
+                if (-not (Test-RalphAutoProperty -Object $subtask -Name "sourceStoryId")) {
+                    $subtask | Add-Member -NotePropertyName "sourceStoryId" -NotePropertyValue ([string]$storyCopy.id)
+                }
+
+                $subtask.dependsOn = @(ConvertTo-RalphAutoStringArray -Value $subtask.dependsOn)
+                $subtask.estimatedFiles = @(ConvertTo-RalphAutoStringArray -Value $subtask.estimatedFiles)
+                $subtask.touches = @(ConvertTo-RalphAutoStringArray -Value $subtask.touches)
+                $subtask.stateWrites = @(ConvertTo-RalphAutoStringArray -Value $subtask.stateWrites)
+                $subtasks += $subtask
+                $index++
+            }
+        } else {
+            $subtasks = @(Split-RalphAutoStoryIntoSubtasks -Story $storyCopy)
+        }
+
+        if (Test-RalphAutoProperty -Object $storyCopy -Name "subtasks") {
+            $storyCopy.subtasks = @($subtasks | Sort-Object priority, id)
+        } else {
+            $storyCopy | Add-Member -NotePropertyName "subtasks" -NotePropertyValue @($subtasks | Sort-Object priority, id)
+        }
+
+        $computedPasses = (@($storyCopy.subtasks | Where-Object { $_.passes -ne $true }).Count -eq 0)
+        if (Test-RalphAutoProperty -Object $storyCopy -Name "passes") {
+            $storyCopy.passes = $computedPasses
+        } else {
+            $storyCopy | Add-Member -NotePropertyName "passes" -NotePropertyValue $computedPasses
+        }
+        $normalized += $storyCopy
+    }
+
+    return $normalized
+}
+
+# Writes a normalized PRD back to disk.
+function Update-RalphAutoPrdStories {
+    param(
+        [string]$PrdPath,
+        [object]$Prd
+    )
+
+    $Prd.userStories = @(ConvertTo-RalphAutoNormalizedStories -Stories @($Prd.userStories))
+    $Prd | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $PrdPath -Encoding UTF8
+    return $Prd
+}
+
+# Returns all normalized subtasks with their parent story metadata.
+function Get-RalphAutoPrdSubtasks {
+    param([object]$Prd)
+
+    $items = @()
+    foreach ($story in @($Prd.userStories | Sort-Object priority)) {
+        foreach ($subtask in @($story.subtasks | Sort-Object priority, id)) {
+            $items += [pscustomobject]@{
+                StoryId = [string]$story.id
+                StoryTitle = [string]$story.title
+                StoryPriority = [int]$story.priority
+                Story = $story
+                Subtask = $subtask
+            }
+        }
+    }
+
+    return $items
+}
+
+# Returns true when two subtasks have a file/touch/state conflict.
+function Test-RalphAutoSubtaskConflict {
+    param(
+        [object]$Left,
+        [object]$Right
+    )
+
+    $leftFiles = @(ConvertTo-RalphAutoStringArray -Value $Left.estimatedFiles)
+    $rightFiles = @(ConvertTo-RalphAutoStringArray -Value $Right.estimatedFiles)
+    if ((@($leftFiles | Where-Object { $rightFiles -contains $_ })).Count -gt 0) {
+        return $true
+    }
+
+    $leftTouches = @(ConvertTo-RalphAutoStringArray -Value $Left.touches)
+    $rightTouches = @(ConvertTo-RalphAutoStringArray -Value $Right.touches)
+    if ((@($leftTouches | Where-Object { $rightTouches -contains $_ })).Count -gt 0) {
+        return $true
+    }
+
+    $leftStates = @(ConvertTo-RalphAutoStringArray -Value $Left.stateWrites)
+    $rightStates = @(ConvertTo-RalphAutoStringArray -Value $Right.stateWrites)
+    if ((@($leftStates | Where-Object { $rightStates -contains $_ })).Count -gt 0) {
+        return $true
+    }
+
+    return $false
+}
+
+# Plans executable subtask batches, grouping safe parallel work together.
+function New-RalphAutoExecutionPlan {
+    param([object]$Prd)
+
+    $subtasks = @(Get-RalphAutoPrdSubtasks -Prd $Prd)
+    $completedSubtaskIds = @($subtasks | Where-Object { $_.Subtask.passes -eq $true } | ForEach-Object { [string]$_.Subtask.id })
+    $pending = @($subtasks | Where-Object { $_.Subtask.passes -ne $true } | Sort-Object StoryPriority, @{ Expression = { [int]$_.Subtask.priority } }, @{ Expression = { [string]$_.Subtask.id } })
+    $batches = @()
+    $analysisNotes = @()
+
+    while ($pending.Count -gt 0) {
+        $ready = @()
+        foreach ($item in $pending) {
+            $dependsOn = @(ConvertTo-RalphAutoStringArray -Value $item.Subtask.dependsOn)
+            $blocked = @($dependsOn | Where-Object { $completedSubtaskIds -notcontains $_ })
+            if ($blocked.Count -eq 0) {
+                $ready += $item
+            }
+        }
+
+        if ($ready.Count -eq 0) {
+            throw "No executable subtasks remain. Check dependsOn cycles or unresolved priorities in prd.json."
+        }
+
+        $batch = @()
+        foreach ($item in $ready) {
+            $subtask = $item.Subtask
+            $isOversized = [int]$subtask.fileBudget -gt 0 -and @(ConvertTo-RalphAutoStringArray -Value $subtask.estimatedFiles).Count -gt [int]$subtask.fileBudget
+            if ($isOversized) {
+                throw "Subtask $([string]$subtask.id) exceeds fileBudget. Split this subtask before execution or reduce estimatedFiles to fit the budget."
+            }
+
+            $conflicts = @($batch | Where-Object { Test-RalphAutoSubtaskConflict -Left $_.Subtask -Right $subtask })
+            if ($batch.Count -eq 0) {
+                $batch += $item
+                continue
+            }
+
+            if ($subtask.parallelSafe -eq $true -and -not $isOversized -and $conflicts.Count -eq 0) {
+                $batch += $item
+            } elseif ($batch.Count -eq 0) {
+                $batch += $item
+            }
+        }
+
+        if ($batch.Count -eq 0) {
+            $batch = @($ready[0])
+        }
+
+        $batches += ,@($batch)
+        foreach ($item in $batch) {
+            $completedSubtaskIds += [string]$item.Subtask.id
+        }
+        $selectedIds = @($batch | ForEach-Object { [string]$_.Subtask.id })
+        $pending = @($pending | Where-Object { $selectedIds -notcontains [string]$_.Subtask.id })
+    }
+
+    return [pscustomobject]@{
+        Batches = $batches
+        AnalysisNotes = $analysisNotes
+    }
+}
+
+# Writes execution analysis details into progress.txt.
+function Write-RalphAutoExecutionAnalysis {
+    param(
+        [string]$ProgressPath,
+        [string]$RunId,
+        [object]$Plan
+    )
+
+    Initialize-RalphAutoProgressLog -ProgressPath $ProgressPath
+    $existing = Get-Content -LiteralPath $ProgressPath -Raw -Encoding UTF8
+    if ($existing -match [regex]::Escape("Execution analysis for Run ID: $RunId")) {
+        return
+    }
+
+    $subtaskCount = 0
+    foreach ($batch in @($Plan.Batches)) {
+        $subtaskCount += @($batch).Count
+    }
+
+    "" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - Execution analysis for Run ID: $RunId" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Subtasks analyzed: $subtaskCount" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Parallel batches: $(@($Plan.Batches | Where-Object { @($_).Count -gt 1 }).Count)" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    $index = 1
+    foreach ($batch in @($Plan.Batches)) {
+        $mode = if (@($batch).Count -gt 1) { "parallel" } else { "serial" }
+        $ids = (@($batch | ForEach-Object { "$([string]$_.StoryId)/$([string]$_.Subtask.id)" }) -join ", ")
+        "- Batch $index ($mode): $ids" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+        $index++
+    }
+    foreach ($note in @($Plan.AnalysisNotes)) {
+        "- Note: $note" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    }
+    "---" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+}
+
 # Resolves a Ralph template file from the repo root, legacy scripts path, or installed vendor path.
 function Resolve-RalphAutoTemplateFile {
     param([string]$FileName)
@@ -202,7 +576,7 @@ function Resolve-RalphAutoTemplateFile {
 function Assert-RalphAutoCleanGit {
     param([string]$Path)
 
-    $status = @(& $GitCommand -C $Path status --short)
+    $status = @(Get-RalphAutoGitStatus -Path $Path)
     if ($LASTEXITCODE -ne 0) {
         throw "Cannot read git status for $Path"
     }
@@ -221,7 +595,21 @@ function Get-RalphAutoGitStatus {
         throw "Cannot read git status for $Path"
     }
 
-    return $status
+    $ignoredSuffixes = @(
+        "scripts/ralph/.run-lock.json",
+        "scripts\ralph\.run-lock.json"
+    )
+
+    return @($status | Where-Object {
+        $line = [string]$_
+        foreach ($suffix in $ignoredSuffixes) {
+            if ($line.TrimEnd() -like "*$suffix") {
+                return $false
+            }
+        }
+
+        return $true
+    })
 }
 
 # Creates a standard Ralph progress log when it is missing.
@@ -247,11 +635,209 @@ function Get-RalphAutoGitBranch {
     return [string]$branch
 }
 
+# Returns the project-level Ralph lock file path.
+function Get-RalphAutoLockPath {
+    param([string]$ProjectRoot)
+
+    return Join-Path $ProjectRoot "scripts\ralph\.run-lock.json"
+}
+
+# Creates a filesystem-safe Ralph run identifier.
+function New-RalphAutoRunId {
+    param([string]$Mode)
+
+    $safeMode = Get-RalphAutoSafeName -Value $Mode
+    return "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$safeMode-$PID"
+}
+
+# Reads the Ralph lock record when present.
+function Read-RalphAutoLockRecord {
+    param([string]$LockPath)
+
+    if (-not (Test-Path -LiteralPath $LockPath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $LockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
+# Returns true when the lock holder still appears to be running.
+function Test-RalphAutoLockRecordActive {
+    param([object]$Record)
+
+    if ($null -eq $Record) {
+        return $false
+    }
+
+    $pidValue = 0
+    if (-not [int]::TryParse([string]$Record.pid, [ref]$pidValue)) {
+        return $false
+    }
+
+    $hostName = [string]$Record.host
+    if (-not [string]::IsNullOrWhiteSpace($hostName) -and $hostName -ne $env:COMPUTERNAME) {
+        return $true
+    }
+
+    $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+    return $null -ne $process
+}
+
+# Returns the current Ralph lock state for a project.
+function Get-RalphAutoLockState {
+    param([string]$ProjectRoot)
+
+    $lockPath = Get-RalphAutoLockPath -ProjectRoot $ProjectRoot
+    $record = Read-RalphAutoLockRecord -LockPath $lockPath
+    $exists = Test-Path -LiteralPath $lockPath
+    $isActive = $exists -and (Test-RalphAutoLockRecordActive -Record $record)
+    $isStale = $exists -and -not $isActive
+
+    return [pscustomobject]@{
+        Path = $lockPath
+        Exists = $exists
+        IsActive = $isActive
+        IsStale = $isStale
+        Record = $record
+    }
+}
+
+# Formats a human-readable lock conflict message.
+function Get-RalphAutoLockConflictMessage {
+    param(
+        [string]$ProjectName,
+        [object]$LockState
+    )
+
+    $record = $LockState.Record
+    $mode = if ($null -ne $record) { [string]$record.mode } else { "unknown" }
+    $startedAt = if ($null -ne $record) { [string]$record.startedAt } else { "unknown" }
+    $runId = if ($null -ne $record) { [string]$record.runId } else { "unknown" }
+    $pidText = if ($null -ne $record) { [string]$record.pid } else { "unknown" }
+    return "Project '$ProjectName' is already locked by active Ralph session $runId (mode=$mode pid=$pidText started=$startedAt). Wait for it to finish, inspect the lock with ReviewProject, or use RunParallel if isolated parallel work is intended."
+}
+
+# Writes a new project lock record, replacing stale locks when needed.
+function Acquire-RalphAutoProjectLock {
+    param(
+        [string]$ProjectName,
+        [string]$ProjectRoot,
+        [string]$WorkspaceRoot,
+        [string]$Mode,
+        [string]$RunId
+    )
+
+    $lockPath = Get-RalphAutoLockPath -ProjectRoot $ProjectRoot
+    $lockDir = Split-Path -Parent $lockPath
+    New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
+
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $state = Get-RalphAutoLockState -ProjectRoot $ProjectRoot
+        if ($state.Exists) {
+            if ($state.IsActive) {
+                throw (Get-RalphAutoLockConflictMessage -ProjectName $ProjectName -LockState $state)
+            }
+
+            Remove-Item -LiteralPath $state.Path -Force -ErrorAction SilentlyContinue
+        }
+
+        $record = [ordered]@{
+            project = $ProjectName
+            mode = $Mode
+            pid = $PID
+            host = $env:COMPUTERNAME
+            startedAt = (Get-Date -Format o)
+            workspaceRoot = $WorkspaceRoot
+            projectRoot = $ProjectRoot
+            branch = (Get-RalphAutoGitBranch -Path $ProjectRoot)
+            runId = $RunId
+        }
+
+        try {
+            $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try {
+                $writer = New-Object System.IO.StreamWriter($stream, [Text.Encoding]::UTF8)
+                $writer.Write(($record | ConvertTo-Json -Depth 8))
+                $writer.Flush()
+            }
+            finally {
+                if ($null -ne $writer) {
+                    $writer.Dispose()
+                }
+                $stream.Dispose()
+            }
+
+            return $record
+        }
+        catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+
+    $finalState = Get-RalphAutoLockState -ProjectRoot $ProjectRoot
+    throw (Get-RalphAutoLockConflictMessage -ProjectName $ProjectName -LockState $finalState)
+}
+
+# Releases the project lock owned by the current session.
+function Release-RalphAutoProjectLock {
+    param(
+        [string]$ProjectRoot,
+        [string]$RunId
+    )
+
+    $state = Get-RalphAutoLockState -ProjectRoot $ProjectRoot
+    if (-not $state.Exists -or $null -eq $state.Record) {
+        return
+    }
+
+    if ([string]$state.Record.runId -ne $RunId) {
+        return
+    }
+
+    if ([string]$state.Record.pid -ne [string]$PID) {
+        return
+    }
+
+    Remove-Item -LiteralPath $state.Path -Force -ErrorAction SilentlyContinue
+}
+
+# Appends a Ralph session header to progress.txt once per run.
+function Write-RalphAutoSessionHeader {
+    param(
+        [string]$ProgressPath,
+        [string]$ProjectName,
+        [string]$Mode,
+        [string]$RunId,
+        [string]$Branch
+    )
+
+    Initialize-RalphAutoProgressLog -ProgressPath $ProgressPath
+    $existing = Get-Content -LiteralPath $ProgressPath -Raw -Encoding UTF8
+    if ($existing -match [regex]::Escape("Run ID: $RunId")) {
+        return
+    }
+
+    "" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - Ralph session" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Project: $ProjectName" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Mode: $Mode" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Run ID: $RunId" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Branch: $Branch" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "- Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+    "---" | Add-Content -LiteralPath $ProgressPath -Encoding UTF8
+}
+
 # Appends a dirty-baseline note so continuation runs are visible in Ralph state.
 function Add-RalphAutoDirtyBaselineNote {
     param(
         [string]$ProjectRoot,
-        [string]$ProjectName
+        [string]$ProjectName,
+        [string]$RunId = ""
     )
 
     $status = @(Get-RalphAutoGitStatus -Path $ProjectRoot)
@@ -268,6 +854,9 @@ function Add-RalphAutoDirtyBaselineNote {
     "" | Add-Content -LiteralPath $progressPath -Encoding UTF8
     "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - Dirty baseline continuation" | Add-Content -LiteralPath $progressPath -Encoding UTF8
     "- Project: $ProjectName" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    if (-not [string]::IsNullOrWhiteSpace($RunId)) {
+        "- Run ID: $RunId" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+    }
     "- Branch: $branch" | Add-Content -LiteralPath $progressPath -Encoding UTF8
     "- Mode: RunProject allowed dirty continuation; no auto-commit, no branch switch, no RunParallel." | Add-Content -LiteralPath $progressPath -Encoding UTF8
     "- Git status:" | Add-Content -LiteralPath $progressPath -Encoding UTF8
@@ -571,6 +1160,20 @@ function Show-RalphAutoProjectReview {
     Write-Host "Workspace: $Root"
     Write-Host "Ralph dir: $ralphDir"
 
+    $lockState = Get-RalphAutoLockState -ProjectRoot $projectRoot
+    if ($lockState.IsActive -and $null -ne $lockState.Record) {
+        Write-Host "Active lock: yes"
+        Write-Host "  Mode: $([string]$lockState.Record.mode)"
+        Write-Host "  Run ID: $([string]$lockState.Record.runId)"
+        Write-Host "  PID: $([string]$lockState.Record.pid)"
+        Write-Host "  Started: $([string]$lockState.Record.startedAt)"
+    } elseif ($lockState.IsStale) {
+        Write-Host "Active lock: stale"
+        Write-Host "  Lock path: $($lockState.Path)"
+    } else {
+        Write-Host "Active lock: none"
+    }
+
     $branch = (& $GitCommand -C $projectRoot branch --show-current 2>$null)
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($branch)) {
         Write-Host "Git branch: $branch"
@@ -580,7 +1183,7 @@ function Show-RalphAutoProjectReview {
     $status = @(& $GitCommand -C $projectRoot status --short 2>$null)
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  unavailable"
-    } elseif ($status.Count -eq 0) {
+    } elseif (@($status).Count -eq 0) {
         Write-Host "  clean"
     } else {
         $status | ForEach-Object { Write-Host "  $_" }
@@ -588,16 +1191,25 @@ function Show-RalphAutoProjectReview {
 
     if (Test-Path -LiteralPath $prdPath) {
         $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $prd = Update-RalphAutoPrdStories -PrdPath $prdPath -Prd $prd
         $stories = @($prd.userStories)
+        $subtasks = @(Get-RalphAutoPrdSubtasks -Prd $prd)
         $unfinished = @($stories | Where-Object { $_.passes -ne $true })
+        $pendingSubtasks = @($subtasks | Where-Object { $_.Subtask.passes -ne $true })
         Write-Host "PRD: $prdPath"
-        Write-Host "Stories: $($stories.Count)"
-        Write-Host "Unfinished: $($unfinished.Count)"
+        Write-Host "Stories: $(@($stories).Count)"
+        Write-Host "Unfinished: $(@($unfinished).Count)"
+        Write-Host "Pending subtasks: $(@($pendingSubtasks).Count)"
         foreach ($story in ($unfinished | Sort-Object priority | Select-Object -First 5)) {
             Write-Host "  $($story.id): $($story.title)"
         }
+        foreach ($item in ($pendingSubtasks | Select-Object -First 5)) {
+            Write-Host "    $([string]$item.Subtask.id): $([string]$item.Subtask.title)"
+        }
     } else {
         Write-Host "PRD: missing"
+        Write-Host "Next step: create or hand off a plan, then write it to $prdPath before RunProject."
+        Write-Host "  Suggested action: use Ralph Auto with a project goal, or run InitProject and convert the PRD into scripts\ralph\prd.json."
     }
 
     if (Test-Path -LiteralPath $progressPath) {
@@ -608,12 +1220,14 @@ function Show-RalphAutoProjectReview {
         }
     } else {
         Write-Host "Progress: missing"
+        Write-Host "Next step: initialize Ralph state or rerun RunProject after prd.json exists so progress.txt can be created."
+        Write-Host "  Suggested action: run InitProject for a new handoff, or RunProject to create progress.txt for an existing PRD."
     }
 
     if (Test-Path -LiteralPath $runsDir) {
         $runs = @(Get-ChildItem -LiteralPath $runsDir -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5)
         Write-Host "Recent runs:"
-        if ($runs.Count -eq 0) {
+        if (@($runs).Count -eq 0) {
             Write-Host "  none"
         } else {
             $runs | ForEach-Object { Write-Host "  $($_.Name)" }
@@ -652,11 +1266,36 @@ function Invoke-RalphAutoProject {
         throw "Refusing to run Ralph directly from the user profile root: $userRoot"
     }
 
+    $runId = New-RalphAutoRunId -Mode "RunProject"
+    $branch = Get-RalphAutoGitBranch -Path $projectRoot
+    $progressPath = Join-Path $projectRoot "scripts\ralph\progress.txt"
+    $projectLockReleased = $false
+    $prdPath = Join-Path $projectRoot "scripts\ralph\prd.json"
     $gitStatus = @(Get-RalphAutoGitStatus -Path $projectRoot)
-    if ($gitStatus.Count -gt 0) {
+
+    if (Test-Path -LiteralPath $prdPath) {
+        $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $prd = Update-RalphAutoPrdStories -PrdPath $prdPath -Prd $prd
+        $executionPlan = New-RalphAutoExecutionPlan -Prd $prd
+    }
+    $lockRecord = Acquire-RalphAutoProjectLock -ProjectName $Name -ProjectRoot $projectRoot -WorkspaceRoot $Root -Mode "RunProject" -RunId $runId
+    Write-RalphAutoSessionHeader -ProgressPath $progressPath -ProjectName $Name -Mode "RunProject" -RunId $runId -Branch $branch
+    if ($null -ne $executionPlan) {
+        Write-RalphAutoExecutionAnalysis -ProgressPath $progressPath -RunId $runId -Plan $executionPlan
+        $parallelBatch = @($executionPlan.Batches | Where-Object { @($_).Count -gt 1 } | Select-Object -First 1)
+        if (@($parallelBatch).Count -gt 0 -and @($gitStatus).Count -eq 0) {
+            Write-Host "Auto-detected safe parallel subtasks. Delegating this run to RunParallel."
+            Release-RalphAutoProjectLock -ProjectRoot $projectRoot -RunId $runId
+            $projectLockReleased = $true
+            Invoke-RalphAutoParallelProject -Root $Root -Name $Name -Iterations $Iterations -Workers ([Math]::Min($MaxWorkers, @($parallelBatch[0]).Count)) -RequestedModel $RequestedModel -SkipMerge:$false -RemoveSuccessfulWorktrees:$false -PreviewOnly:$false
+            return
+        }
+    }
+
+    if (@($gitStatus).Count -gt 0) {
         Write-Host "Dirty continuation detected for RunProject. Continuing without auto-commit or branch changes."
         $gitStatus | ForEach-Object { Write-Host "  $_" }
-        Add-RalphAutoDirtyBaselineNote -ProjectRoot $projectRoot -ProjectName $Name
+        Add-RalphAutoDirtyBaselineNote -ProjectRoot $projectRoot -ProjectName $Name -RunId $runId
     }
 
     $args = @(
@@ -667,9 +1306,15 @@ function Invoke-RalphAutoProject {
         $runnerPath,
         "-ProjectRoot",
         $projectRoot,
+        "-RunId",
+        $runId,
         "-MaxIterations",
         $Iterations
     )
+
+    if (@($gitStatus).Count -gt 0) {
+        $args += "-AllowDirtyContinuation"
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedModel)) {
         $args += @("-Model", $RequestedModel)
@@ -686,6 +1331,9 @@ function Invoke-RalphAutoProject {
         }
     }
     finally {
+        if (-not $projectLockReleased) {
+            Release-RalphAutoProjectLock -ProjectRoot $projectRoot -RunId $runId
+        }
         Pop-Location
     }
 }
@@ -721,36 +1369,19 @@ function Invoke-RalphAutoParallelProject {
     Assert-RalphAutoCleanGit -Path $projectRoot
 
     $prd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $stories = @($prd.userStories)
-    $completedIds = @($stories | Where-Object { $_.passes -eq $true } | ForEach-Object { [string]$_.id })
-    $ready = @()
-
-    foreach ($story in ($stories | Sort-Object priority)) {
-        if ($story.passes -eq $true) {
-            continue
-        }
-
-        if (-not (Test-RalphAutoProperty -Object $story -Name "parallelSafe") -or $story.parallelSafe -ne $true) {
-            continue
-        }
-
-        $dependsOn = @()
-        if (Test-RalphAutoProperty -Object $story -Name "dependsOn") {
-            $dependsOn = @($story.dependsOn | ForEach-Object { [string]$_ })
-        }
-
-        $blocked = @($dependsOn | Where-Object { $completedIds -notcontains $_ })
-        if ($blocked.Count -eq 0) {
-            $ready += $story
-        }
+    $prd = Update-RalphAutoPrdStories -PrdPath $prdPath -Prd $prd
+    $executionPlan = New-RalphAutoExecutionPlan -Prd $prd
+    $parallelBatch = @($executionPlan.Batches | Where-Object { @($_).Count -gt 1 } | Select-Object -First 1)
+    if ($parallelBatch.Count -eq 0) {
+        throw "No parallel-safe ready subtasks found. Mark subtasks with parallelSafe: true, satisfied dependsOn, and non-conflicting file/state surfaces."
     }
 
-    $selected = @($ready | Select-Object -First $Workers)
+    $selected = @($parallelBatch[0] | Select-Object -First $Workers)
     if ($selected.Count -eq 0) {
-        throw "No parallel-safe ready stories found. Mark stories with parallelSafe: true and satisfied dependsOn."
+        throw "No executable subtasks selected for RunParallel."
     }
 
-    $runId = Get-Date -Format "yyyyMMdd-HHmmss"
+    $runId = New-RalphAutoRunId -Mode "RunParallel"
     $safeProject = Get-RalphAutoSafeName -Value $Name
     $taskRoot = Join-Path $Root "tasks\$safeProject\$runId"
     $baseBranch = (& $GitCommand -C $projectRoot branch --show-current)
@@ -758,17 +1389,19 @@ function Invoke-RalphAutoParallelProject {
         throw "Cannot determine current branch for $projectRoot"
     }
 
+    $progressPath = Join-Path $ralphDir "progress.txt"
+
     Write-Host "RunParallel project: $Name"
     Write-Host "Project root: $projectRoot"
     Write-Host "Base branch: $baseBranch"
     Write-Host "Task root: $taskRoot"
-    Write-Host "Selected stories:"
-    $selected | ForEach-Object { Write-Host "  $($_.id): $($_.title)" }
+    Write-Host "Selected subtasks:"
+    $selected | ForEach-Object { Write-Host "  $([string]$_.Subtask.id): $([string]$_.Subtask.title)" }
 
     if ($PreviewOnly) {
         Write-Host "DryRun: no worktrees created and no workers started."
-        foreach ($story in $selected) {
-            $storyId = Get-RalphAutoSafeName -Value ([string]$story.id)
+        foreach ($item in $selected) {
+            $storyId = Get-RalphAutoSafeName -Value ([string]$item.Subtask.id)
             $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
             $worktreePath = Join-Path $taskRoot $storyId
             Write-Host "Would create: $worktreePath"
@@ -777,149 +1410,183 @@ function Invoke-RalphAutoParallelProject {
         return
     }
 
-    New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
-    $jobs = @()
+    $lockRecord = Acquire-RalphAutoProjectLock -ProjectName $Name -ProjectRoot $projectRoot -WorkspaceRoot $Root -Mode "RunParallel" -RunId $runId
+    Write-RalphAutoSessionHeader -ProgressPath $progressPath -ProjectName $Name -Mode "RunParallel" -RunId $runId -Branch $baseBranch
+    Write-RalphAutoExecutionAnalysis -ProgressPath $progressPath -RunId $runId -Plan $executionPlan
 
-    foreach ($story in $selected) {
-        $storyId = Get-RalphAutoSafeName -Value ([string]$story.id)
-        $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
-        $worktreePath = Join-Path $taskRoot $storyId
+    try {
+        New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
+        $jobs = @()
 
-        & $GitCommand -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create worktree for $($story.id)"
-        }
+        foreach ($item in $selected) {
+            $subtask = $item.Subtask
+            $storyId = Get-RalphAutoSafeName -Value ([string]$subtask.id)
+            $branchName = "ralph/parallel/$safeProject/$storyId-$runId"
+            $worktreePath = Join-Path $taskRoot $storyId
 
-        Copy-RalphAutoTemplates -ProjectRoot $worktreePath
-
-        $workerRalphDir = Join-Path $worktreePath "scripts\ralph"
-        $workerPrdPath = Join-Path $workerRalphDir "prd.json"
-        $workerPrd = $prd | ConvertTo-Json -Depth 20 | ConvertFrom-Json
-        $workerPrd.branchName = $branchName
-        $workerPrd.userStories = @($story)
-        $workerPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $workerPrdPath -Encoding UTF8
-
-        $runnerPath = Join-Path $workerRalphDir "ralph.ps1"
-        $workerArgs = @(
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            $runnerPath,
-            "-ProjectRoot",
-            $worktreePath,
-            "-RalphDir",
-            $workerRalphDir,
-            "-MaxIterations",
-            $Iterations
-        )
-
-        if (-not [string]::IsNullOrWhiteSpace($RequestedModel)) {
-            $workerArgs += @("-Model", $RequestedModel)
-        }
-
-        Write-Host "Starting worker $($story.id): pwsh $($workerArgs -join ' ')"
-        $job = Start-Job -Name $story.id -ScriptBlock {
-            param([string[]]$ArgsForPwsh)
-            & pwsh @ArgsForPwsh
+            & $GitCommand -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
             if ($LASTEXITCODE -ne 0) {
-                throw "Ralph worker exited with code $LASTEXITCODE"
+                throw "Failed to create worktree for $($subtask.id)"
             }
-        } -ArgumentList (,$workerArgs)
 
-        $jobs += [pscustomobject]@{
-            StoryId = [string]$story.id
-            StoryTitle = [string]$story.title
-            Branch = $branchName
-            Worktree = $worktreePath
-            Job = $job
-        }
-    }
+            Copy-RalphAutoTemplates -ProjectRoot $worktreePath
 
-    $failed = @()
-    foreach ($item in $jobs) {
-        Wait-Job -Job $item.Job | Out-Null
-        Receive-Job -Job $item.Job | Out-Host
-        if ($item.Job.State -ne "Completed") {
-            $failed += $item
-            continue
-        }
-    }
+            $workerRalphDir = Join-Path $worktreePath "scripts\ralph"
+            $workerPrdPath = Join-Path $workerRalphDir "prd.json"
+            $workerPrd = $prd | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $workerPrd.branchName = $branchName
+            $workerStory = $item.Story | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+            $workerStory.subtasks = @($subtask)
+            $workerStory.passes = ($subtask.passes -eq $true)
+            $workerPrd.userStories = @($workerStory)
+            if (Test-RalphAutoProperty -Object $workerPrd -Name "runId") {
+                $workerPrd.runId = $runId
+            } else {
+                $workerPrd | Add-Member -NotePropertyName "runId" -NotePropertyValue $runId
+            }
+            $workerPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $workerPrdPath -Encoding UTF8
 
-    if ($failed.Count -gt 0) {
-        Write-Host "One or more workers failed. Worktrees were preserved."
-        $failed | ForEach-Object { Write-Host "  $($_.StoryId): $($_.Worktree)" }
-        throw "RunParallel worker failure"
-    }
+            $runnerPath = Join-Path $workerRalphDir "ralph.ps1"
+            $workerArgs = @(
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                $runnerPath,
+                "-ProjectRoot",
+                $worktreePath,
+                "-RalphDir",
+                $workerRalphDir,
+                "-RunId",
+                $runId,
+                "-MaxIterations",
+                $Iterations
+            )
 
-    if ($SkipMerge) {
-        Write-Host "NoMerge was set. Worker branches were left unmerged."
-        $jobs | ForEach-Object { Write-Host "  $($_.Branch) -> $($_.Worktree)" }
-        return
-    }
+            if (-not [string]::IsNullOrWhiteSpace($RequestedModel)) {
+                $workerArgs += @("-Model", $RequestedModel)
+            }
 
-    foreach ($item in $jobs) {
-        & $GitCommand -C $item.Worktree restore --source $baseBranch -- scripts/ralph 2>$null
-        & $GitCommand -C $item.Worktree clean -fd -- scripts/ralph | Out-Host
-        if ($LASTEXITCODE -eq 0) {
-            $stateStatus = @(& $GitCommand -C $item.Worktree status --short -- scripts/ralph)
-            if ($stateStatus.Count -gt 0) {
-                & $GitCommand -C $item.Worktree add scripts/ralph | Out-Host
-                & $GitCommand -C $item.Worktree commit -m "chore: keep worker Ralph state out of merge" | Out-Host
+            Write-Host "Starting worker $($subtask.id): pwsh $($workerArgs -join ' ')"
+            $job = Start-Job -Name $subtask.id -ScriptBlock {
+                param([string[]]$ArgsForPwsh)
+                & pwsh @ArgsForPwsh
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Ralph worker exited with code $LASTEXITCODE"
+                }
+            } -ArgumentList (,$workerArgs)
+
+            $jobs += [pscustomobject]@{
+                StoryId = [string]$item.StoryId
+                StoryTitle = [string]$item.StoryTitle
+                SubtaskId = [string]$subtask.id
+                SubtaskTitle = [string]$subtask.title
+                Branch = $branchName
+                Worktree = $worktreePath
+                Job = $job
             }
         }
 
-        Write-Host "Merging $($item.Branch)"
-        & $GitCommand -C $projectRoot merge --no-ff $item.Branch -m "merge: $($item.StoryId) parallel RA worker" | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Merge conflict or merge failure. Worktree preserved: $($item.Worktree)"
-            throw "Failed to merge $($item.Branch)"
-        }
-    }
-
-    if (Test-Path -LiteralPath $prdPath) {
-        $mainPrd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $failed = @()
         foreach ($item in $jobs) {
-            $mainStory = @($mainPrd.userStories | Where-Object { $_.id -eq $item.StoryId }) | Select-Object -First 1
-            if ($null -ne $mainStory) {
-                $mainStory.passes = $true
-                $note = "Completed by parallel RA worker branch $($item.Branch)"
-                if (Test-RalphAutoProperty -Object $mainStory -Name "notes") {
-                    $mainStory.notes = $note
-                } else {
-                    $mainStory | Add-Member -NotePropertyName "notes" -NotePropertyValue $note
+            Wait-Job -Job $item.Job | Out-Null
+            Receive-Job -Job $item.Job | Out-Host
+            if ($item.Job.State -ne "Completed") {
+                $failed += $item
+                continue
+            }
+        }
+
+        if ($failed.Count -gt 0) {
+            Write-Host "One or more workers failed. Worktrees were preserved."
+            $failed | ForEach-Object { Write-Host "  $($_.SubtaskId): $($_.Worktree)" }
+            throw "RunParallel worker failure"
+        }
+
+        if ($SkipMerge) {
+            Write-Host "NoMerge was set. Worker branches were left unmerged."
+            $jobs | ForEach-Object { Write-Host "  $($_.Branch) -> $($_.Worktree)" }
+            return
+        }
+
+        foreach ($item in $jobs) {
+            & $GitCommand -C $item.Worktree restore --source $baseBranch -- scripts/ralph 2>$null
+            & $GitCommand -C $item.Worktree clean -fd -- scripts/ralph | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                $stateStatus = @(& $GitCommand -C $item.Worktree status --short -- scripts/ralph)
+                if ($stateStatus.Count -gt 0) {
+                    & $GitCommand -C $item.Worktree add scripts/ralph | Out-Host
+                    & $GitCommand -C $item.Worktree commit -m "chore: keep worker Ralph state out of merge" | Out-Host
                 }
             }
+
+            Write-Host "Merging $($item.Branch)"
+            & $GitCommand -C $projectRoot merge --no-ff $item.Branch -m "merge: $($item.StoryId) parallel RA worker" | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Merge conflict or merge failure. Worktree preserved: $($item.Worktree)"
+                throw "Failed to merge $($item.Branch)"
+            }
         }
 
-        $mainPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $prdPath -Encoding UTF8
-        $progressPath = Join-Path $ralphDir "progress.txt"
-        if (-not (Test-Path -LiteralPath $progressPath)) {
-            "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
-            "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        if (Test-Path -LiteralPath $prdPath) {
+            $mainPrd = Get-Content -LiteralPath $prdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $mainPrd = Update-RalphAutoPrdStories -PrdPath $prdPath -Prd $mainPrd
+            foreach ($item in $jobs) {
+                $mainStory = @($mainPrd.userStories | Where-Object { $_.id -eq $item.StoryId }) | Select-Object -First 1
+                if ($null -ne $mainStory) {
+                    $mainSubtask = @($mainStory.subtasks | Where-Object { $_.id -eq $item.SubtaskId }) | Select-Object -First 1
+                    if ($null -ne $mainSubtask) {
+                        $mainSubtask.passes = $true
+                        $subtaskNote = "Completed by parallel RA worker branch $($item.Branch)"
+                        if (Test-RalphAutoProperty -Object $mainSubtask -Name "notes") {
+                            $mainSubtask.notes = $subtaskNote
+                        } else {
+                            $mainSubtask | Add-Member -NotePropertyName "notes" -NotePropertyValue $subtaskNote
+                        }
+                    }
+                    $mainStory.passes = (@($mainStory.subtasks | Where-Object { $_.passes -ne $true }).Count -eq 0)
+                    $note = "Parallel subtask progress updated for $($item.SubtaskId)"
+                    if (Test-RalphAutoProperty -Object $mainStory -Name "notes") {
+                        $mainStory.notes = $note
+                    } else {
+                        $mainStory | Add-Member -NotePropertyName "notes" -NotePropertyValue $note
+                    }
+                }
+            }
+
+            $mainPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $prdPath -Encoding UTF8
+            if (-not (Test-Path -LiteralPath $progressPath)) {
+                "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
+                "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            }
+
+            foreach ($item in $jobs) {
+                "" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - $($item.SubtaskId)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "- Run ID: $runId" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "- Story: $($item.StoryId) - $($item.StoryTitle)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "- Completed by parallel RA worker branch $($item.Branch)." | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "- Worktree: $($item.Worktree)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "- Merged into $baseBranch." | Add-Content -LiteralPath $progressPath -Encoding UTF8
+                "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            }
+
+            & $GitCommand -C $projectRoot add scripts\ralph\prd.json scripts\ralph\progress.txt | Out-Host
+            & $GitCommand -C $projectRoot commit -m "chore: update parallel RA state" | Out-Host
         }
 
-        foreach ($item in $jobs) {
-            "" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "## $(Get-Date -Format 'yyyy-MM-dd HH:mm zzz') - $($item.StoryId)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "- Completed by parallel RA worker branch $($item.Branch)." | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "- Worktree: $($item.Worktree)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "- Merged into $baseBranch." | Add-Content -LiteralPath $progressPath -Encoding UTF8
-            "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        if ($RemoveSuccessfulWorktrees) {
+            foreach ($item in $jobs) {
+                & $GitCommand -C $projectRoot worktree remove $item.Worktree --force | Out-Host
+            }
         }
 
-        & $GitCommand -C $projectRoot add scripts\ralph\prd.json scripts\ralph\progress.txt | Out-Host
-        & $GitCommand -C $projectRoot commit -m "chore: update parallel RA state" | Out-Host
+        Write-Host "RunParallel completed."
     }
-
-    if ($RemoveSuccessfulWorktrees) {
-        foreach ($item in $jobs) {
-            & $GitCommand -C $projectRoot worktree remove $item.Worktree --force | Out-Host
-        }
+    finally {
+        Release-RalphAutoProjectLock -ProjectRoot $projectRoot -RunId $runId
     }
-
-    Write-Host "RunParallel completed."
 }
 
 # Previews or removes old Ralph runtime context without touching user code.
@@ -1004,33 +1671,43 @@ function Invoke-RalphAutoContextCleanup {
         return
     }
 
-    foreach ($run in $removedRuns) {
-        Remove-Item -LiteralPath $run.FullName -Force
-    }
+    $runId = New-RalphAutoRunId -Mode "CleanupContext"
+    $branch = Get-RalphAutoGitBranch -Path $projectRoot
+    $lockRecord = Acquire-RalphAutoProjectLock -ProjectName $Name -ProjectRoot $projectRoot -WorkspaceRoot $Root -Mode "CleanupContext" -RunId $runId
+    Write-RalphAutoSessionHeader -ProgressPath $progressPath -ProjectName $Name -Mode "CleanupContext" -RunId $runId -Branch $branch
 
-    foreach ($task in $removableTasks) {
-        if ($task.Kind -eq "clean-worker-worktree") {
-            & $GitCommand -C $projectRoot worktree remove $task.Path --force | Out-Host
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to remove worker worktree: $($task.Path)"
-            }
-        } else {
-            Remove-Item -LiteralPath $task.Path -Recurse -Force
+    try {
+        foreach ($run in $removedRuns) {
+            Remove-Item -LiteralPath $run.FullName -Force
         }
-    }
 
-    if ($ShouldArchiveProgress -and (Test-Path -LiteralPath $progressPath)) {
-        New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
-        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $archivePath = Join-Path $archiveDir "progress-$stamp.txt"
-        Copy-Item -LiteralPath $progressPath -Destination $archivePath -Force
-        "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
-        "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-        "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-        "Archived previous progress to: $archivePath" | Add-Content -LiteralPath $progressPath -Encoding UTF8
-    }
+        foreach ($task in $removableTasks) {
+            if ($task.Kind -eq "clean-worker-worktree") {
+                & $GitCommand -C $projectRoot worktree remove $task.Path --force | Out-Host
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to remove worker worktree: $($task.Path)"
+                }
+            } else {
+                Remove-Item -LiteralPath $task.Path -Recurse -Force
+            }
+        }
 
-    Write-Host "CleanupContext completed."
+        if ($ShouldArchiveProgress -and (Test-Path -LiteralPath $progressPath)) {
+            New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+            $archivePath = Join-Path $archiveDir "progress-$stamp.txt"
+            Copy-Item -LiteralPath $progressPath -Destination $archivePath -Force
+            "# Ralph Progress Log" | Set-Content -LiteralPath $progressPath -Encoding UTF8
+            "Started: $(Get-Date -Format o)" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "---" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+            "Archived previous progress to: $archivePath" | Add-Content -LiteralPath $progressPath -Encoding UTF8
+        }
+
+        Write-Host "CleanupContext completed."
+    }
+    finally {
+        Release-RalphAutoProjectLock -ProjectRoot $projectRoot -RunId $runId
+    }
 }
 
 switch ($Command) {

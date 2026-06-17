@@ -1,0 +1,76 @@
+# Ralph Progress Log
+Started: 2026-06-17T23:49:46.9123647+08:00
+---
+
+## 2026-06-17 23:49 +08:00 - Ralph session
+- Mode: RunProject
+- Run ID: 20260617-234945-RunProject-41284
+- Branch: codex-support
+- Dirty continuation: True
+- Started: 2026-06-17T23:49:47.0451026+08:00
+---
+## 2026-06-17 23:56 +08:00 - US-001-ST-001
+- Story: US-001 - Improve missing-state review guidance
+- Implemented actionable ReviewProject next-step guidance for missing scripts\ralph\prd.json and missing progress.txt states.
+- Files changed
+  C:\Users\tianh\ralph-codex\ralph-auto.ps1
+  C:\Users\tianh\ralph-codex\scripts\ralph\prd.json
+  C:\Users\tianh\ralph-codex\scripts\ralph\progress.txt
+- Quality checks run and results
+  ReviewProject with both prd.json and progress.txt missing: passed; output included next-step guidance for both missing states.
+  ReviewProject with prd.json present and progress.txt missing: passed; output included next-step guidance for progress initialization or rerun.
+  PSParser syntax check for ralph-auto.ps1: passed.
+- Browser verification result, if this was a UI subtask
+  not applicable
+- Final deliverables:
+  none
+- **Learnings for future iterations:**
+  - `ReviewProject` missing-state output lives in `Show-RalphAutoProjectReview` in root `ralph-auto.ps1`.
+  - On this machine, use `C:\Program Files\Git\cmd\git.exe` when plain `git` is not in PATH.
+---
+
+## 2026-06-18 00:00 +08:00 - US-002-ST-001
+- Story: US-002 - Enforce oversized subtask planning failures
+- Implemented fail-fast planning for explicit subtasks whose `estimatedFiles` count exceeds `fileBudget`.
+- Files changed
+  C:\Users\tianh\ralph-codex\ralph-auto.ps1
+  C:\Users\tianh\ralph-codex\README.md
+  C:\Users\tianh\ralph-codex\WORKSPACE.md
+  C:\Users\tianh\ralph-codex\skills\ralph-auto\SKILL.md
+  C:\Users\tianh\ralph-codex\scripts\ralph\prd.json
+- Quality checks run and results
+  PowerShell parser check for ralph.ps1, scripts\ralph\ralph.ps1, ralph-auto.ps1, workspace.ps1, install-codex.ps1: passed.
+  git diff --check: passed.
+  flowchart npm run build: passed.
+- Browser verification result, if this was a UI subtask
+  not applicable
+- Final deliverables:
+  none
+- **Learnings for future iterations:**
+  - Oversized explicit subtasks are rejected in `New-RalphAutoExecutionPlan`.
+  - Legacy stories can still be normalized or split before planning; explicit subtask budgets are treated as hard limits.
+---
+
+## 2026-06-18 00:06 +08:00 - US-003-ST-001
+- Story: US-003 - Document and verify remaining behavior
+- Refreshed docs for dirty continuation and oversized explicit subtask fail-fast behavior, then ran final validation.
+- Files changed
+  C:\Users\tianh\ralph-codex\README.md
+  C:\Users\tianh\ralph-codex\WORKSPACE.md
+  C:\Users\tianh\ralph-codex\skills\ralph-auto\SKILL.md
+  C:\Users\tianh\ralph-codex\scripts\ralph\prd.json
+  C:\Users\tianh\ralph-codex\scripts\ralph\progress.txt
+- Quality checks run and results
+  PowerShell parser check for ralph.ps1, scripts\ralph\ralph.ps1, ralph-auto.ps1, workspace.ps1, install-codex.ps1: passed.
+  git diff --check: passed.
+  flowchart npm run build: passed.
+  Oversized explicit subtask smoke: passed; RunParallel -DryRun failed with an `exceeds fileBudget` message.
+  Parallel dry-run smoke: passed; RunParallel -DryRun selected US-001-ST-001 and US-001-ST-002 with branch/worktree previews.
+- Browser verification result, if this was a UI subtask
+  not applicable
+- Final deliverables:
+  none
+- **Learnings for future iterations:**
+  - Use a temporary registered workspace project for RA smoke tests, then remove both the temp directory and registry entry.
+  - Dirty continuation must be represented in both the runner parameter and the child Codex runtime context.
+---

@@ -3,6 +3,9 @@
 /progress.txt
 /.last-branch
 /runs/
+/scripts/ralph/.last-branch
+/scripts/ralph/runs/
+/scripts/ralph/archive/
 
 # Archive is optional to commit
 # archive/

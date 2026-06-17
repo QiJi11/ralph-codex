@@ -121,13 +121,13 @@ RA may use parallel subagents for read-only review, but the main RA flow owns al
 & "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app'
 ```
 
-For write-capable multi-agent work, say `用 RA 并行跑 ...`. Parallel mode uses isolated git worktrees and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`:
+For write-capable multi-agent work, Ralph now reasons at the subtask level. It can auto-detect safe parallel batches and uses isolated git worktrees for subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces:
 
 ```powershell
 & "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
 ```
 
-Use `-DryRun` to preview selected stories, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
+Use `-DryRun` to preview selected subtasks, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
 
 Ralph builds Codex prompts with stable instructions first and runtime details last. Keep `CODEX.md` focused on durable rules; put changing facts such as current story details, timestamps, logs, and paths in `scripts\ralph\prd.json` or `progress.txt` instead of editing `CODEX.md` each run. Parallel workers share the same stable prefix and only differ in the runtime tail.
 
@@ -215,14 +215,16 @@ Bash, WSL, macOS, or Linux:
 Ralph will:
 
 1. Read `prd.json`.
-2. Create or switch to the feature branch from PRD `branchName`.
-3. Pick the highest priority story where `passes: false`.
-4. Implement that single story in a fresh Codex CLI context.
+2. Create or switch to the feature branch from PRD `branchName`, unless `RunProject` is continuing an existing dirty baseline.
+3. Pick the highest priority executable subtask where `passes: false`.
+4. Implement that single subtask in a fresh Codex CLI context.
 5. Run quality checks.
 6. Commit if checks pass.
-7. Update `prd.json` to mark the story as `passes: true`.
+7. Update `prd.json` to mark the completed subtask as `passes: true`, then recompute the parent story.
 8. Append learnings to `progress.txt`.
 9. Repeat until all stories pass or max iterations is reached.
+
+For ordinary dirty continuation, `RunProject` stays on the current branch, records the dirty baseline in `progress.txt`, and passes that mode into the Codex runtime context. `RunParallel` and real `CleanupContext` still require a clean worktree.
 
 ## Key Files
 
@@ -261,9 +263,9 @@ Each iteration launches a new Codex CLI process. The only memory between iterati
 
 ### Small Tasks
 
-Each PRD item should be small enough to complete in one context window.
+Each executable subtask should be small enough to complete in one context window.
 
-Right-sized stories:
+Right-sized subtasks:
 
 - Add a database column and migration.
 - Add a UI component to an existing page.
@@ -275,6 +277,9 @@ Too large:
 - Build the entire dashboard.
 - Add authentication.
 - Refactor the whole API.
+
+Stories may contain multiple subtasks. Ralph can split oversized legacy stories into subtasks, then analyze whether safe independent subtasks can run in parallel.
+Explicit subtasks with `estimatedFiles` greater than `fileBudget` fail execution planning and must be split before `RunProject` or `RunParallel` starts.
 
 ### Feedback Loops
 
@@ -293,7 +298,7 @@ When all stories have `passes: true`, Codex outputs:
 <promise>COMPLETE</promise>
 ```
 
-The runner exits successfully when it sees that signal.
+The runner exits successfully when it sees that signal, the PRD is fully passing, and the latest `progress.txt` entry reports final deliverable paths or explicit `none`.
 
 ## Debugging
 

@@ -46,7 +46,9 @@ Before running Ralph, Codex should state the execution brief: project, goal, ass
 
 RA can use parallel subagents for read-only review, but only the main RA flow should write project files, Ralph state, or git commits.
 
-For write-capable multi-agent runs, use `用 RA 并行跑 ...`. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and only runs stories marked `parallelSafe: true` with satisfied `dependsOn`.
+Ordinary `RunProject` can continue a dirty baseline. In that mode it stays on the current branch, records the baseline in `progress.txt`, and tells the runner not to enforce PRD `branchName` checkout for that run.
+
+For write-capable multi-agent runs, use `用 RA 并行跑 ...` or let RA auto-detect a safe parallel batch. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and runs subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces.
 
 Ralph prompts are cache-friendly by design: stable instructions from `CODEX.md` are placed before runtime-specific values. Keep `CODEX.md` stable across runs, and put changing story details, logs, timestamps, and paths in `scripts\ralph\prd.json` or `progress.txt`.
 
@@ -90,7 +92,9 @@ The helper provides the same workspace actions with one stable entrypoint:
 .\ralph-auto.ps1 -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3 -DryRun
 ```
 
-`RunParallel -DryRun` is the minimum safe smoke check for parallel mode. It should print selected story IDs, branch names, and worktree paths without creating worktrees or launching workers. If no story is ready, it should return a clear validation error explaining that stories need `parallelSafe: true` and satisfied `dependsOn`.
+`RunParallel -DryRun` is the minimum safe smoke check for parallel mode. It should print selected subtask IDs, branch names, and worktree paths without creating worktrees or launching workers. If no subtask is ready, it should return a clear validation error explaining that subtasks need `parallelSafe: true`, satisfied `dependsOn`, and non-conflicting file/state surfaces.
+
+Planning fails before execution when an explicit subtask lists more `estimatedFiles` than its `fileBudget`. Split that subtask into smaller work before running RA.
 
 Preview Ralph context cleanup without changing files:
 

@@ -39,6 +39,7 @@ Use parallel mode only when the user explicitly says `并行`, `parallel`, asks 
 - `RunProject` allows dirty continuation for the current baseline.
 - `RunParallel` requires a clean worktree because it creates worktrees, commits, and merges.
 - `CleanupContext` requires a clean worktree unless it is `-DryRun`.
+- Write-capable Ralph commands are project-locked: `RunProject`, real `RunParallel`, and real `CleanupContext` must not overlap on the same project.
 
 ## Required Flow
 
@@ -49,6 +50,7 @@ Use parallel mode only when the user explicitly says `并行`, `parallel`, asks 
 5. Convert the PRD into `scripts\ralph\prd.json`.
 6. Run Ralph through the workspace entrypoint for that project.
 7. Report the project, workspace, PRD path, and Ralph command used.
+8. If the task produces final files, report every final deliverable path in the user-visible final response.
 
 ## Execution Brief
 
@@ -112,6 +114,7 @@ Rules:
 - Main RA merges successful worker branches back into the project.
 - If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
 - Use `-DryRun` before risky parallel runs to show selected stories and worktree paths.
+- `RunParallel` still takes the project lock for the duration of the write-capable run.
 
 ## Dirty Continuation Policy
 
@@ -124,8 +127,19 @@ Rules:
 - Do not auto-commit the baseline.
 - Do not upgrade the run into `RunParallel`.
 - Record the dirty baseline in the execution brief and `scripts\ralph\progress.txt`.
+- Pass dirty continuation into the Ralph runner so the child Codex process stays on the current branch and does not require PRD `branchName` checkout for that run.
 
 If the user explicitly asks for isolation, parallel execution, auto-commit, or merge-based fanout while the project is dirty, stop and ask them to commit, stash, or switch back to ordinary `RunProject`.
+
+## Final Deliverables
+
+For any task that creates, edits, repairs, or exports final user-facing files:
+
+- Report every final deliverable path in the final user-facing response.
+- Record the same paths in `scripts\ralph\progress.txt`.
+- List only true deliverables, not temporary renders, QA PNGs, scratch scripts, or caches, unless the plan explicitly says to deliver those too.
+
+This rule applies to document, spreadsheet, presentation, export, patch, and other file-producing stories, not only DOCX work.
 
 ## Prompt Cache Hygiene
 
@@ -188,10 +202,14 @@ When the user says `RA 上面的内容`, `用 RA 跑刚才的 plan`, `把上面�
 ## PRD Rules
 
 - Keep stories small enough for one Ralph iteration each.
+- Default to subtasks as the true execution unit. A story may contain multiple subtasks, but each subtask must be completable in one Ralph iteration.
 - Order stories by dependency.
 - Add verifiable acceptance criteria, including required checks such as typecheck, tests, build, or browser verification for UI work.
 - Set every new story to `"passes": false`.
 - Use a feature branch name under `ralph/`.
+- If a story is still broad, split it before execution into subtasks with `dependsOn`, `parallelSafe`, `touches`, `stateWrites`, and `fileBudget`.
+- If an explicit subtask has more `estimatedFiles` than `fileBudget`, execution planning fails and the subtask must be split before running RA.
+- If safe independent subtasks exist, prefer automatic parallel execution over manual serial execution.
 
 ## PowerShell Examples
 
