@@ -311,6 +311,12 @@ Get-ChildItem .\scripts\ralph\runs
 git log --oneline -10
 ```
 
+Run the Ralph Auto regression smoke before and after changing RA orchestration:
+
+```powershell
+.\scripts\test-ra-smoke.ps1
+```
+
 Bash:
 
 ```bash

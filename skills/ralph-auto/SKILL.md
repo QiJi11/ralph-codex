@@ -110,10 +110,10 @@ Rules:
 
 - The main project worktree must be clean before starting.
 - Each worker gets a separate git worktree under `RalphWorkspace\tasks`.
-- Each worker receives a PRD containing only its assigned story.
+- Each worker receives a PRD containing only its assigned subtask and parent story context.
 - Main RA merges successful worker branches back into the project.
 - If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
-- Use `-DryRun` before risky parallel runs to show selected stories and worktree paths.
+- Use `-DryRun` before risky parallel runs to show selected subtasks and worktree paths.
 - `RunParallel` still takes the project lock for the duration of the write-capable run.
 
 ## Dirty Continuation Policy

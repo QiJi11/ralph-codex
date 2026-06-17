@@ -96,6 +96,12 @@ The helper provides the same workspace actions with one stable entrypoint:
 
 Planning fails before execution when an explicit subtask lists more `estimatedFiles` than its `fileBudget`. Split that subtask into smaller work before running RA.
 
+Run the RA smoke suite before and after changing workspace orchestration:
+
+```powershell
+.\scripts\test-ra-smoke.ps1
+```
+
 Preview Ralph context cleanup without changing files:
 
 ```powershell
