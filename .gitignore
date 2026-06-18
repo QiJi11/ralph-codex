@@ -1,7 +1,11 @@
 # Ralph working files (generated during runs)
-prd.json
-progress.txt
-.last-branch
+/prd.json
+/progress.txt
+/.last-branch
+/runs/
+/scripts/ralph/.last-branch
+/scripts/ralph/runs/
+/scripts/ralph/archive/
 
 # Archive is optional to commit
 # archive/
@@ -9,5 +13,9 @@ progress.txt
 # OS files
 .DS_Store
 
-#Claude
+# Tool state
 .claude/
+.codex/
+
+# Local smoke-test scripts
+.tmp-*.ps1

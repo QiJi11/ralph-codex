@@ -12,7 +12,7 @@ Converts existing PRDs to the prd.json format that Ralph uses for autonomous exe
 
 ## The Job
 
-Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph directory.
+Take a PRD (markdown file or text) and convert it to `prd.json` in your Ralph directory. Prefer `scripts/ralph/prd.json` when the project has a `scripts/ralph` directory; otherwise write `prd.json` in the current project root.
 
 ---
 
@@ -28,14 +28,32 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
       "id": "US-001",
       "title": "[Story title]",
       "description": "As a [user], I want [feature] so that [benefit]",
-      "acceptanceCriteria": [
-        "Criterion 1",
-        "Criterion 2",
-        "Typecheck passes"
-      ],
       "priority": 1,
       "passes": false,
-      "notes": ""
+      "notes": "",
+      "subtasks": [
+        {
+          "id": "US-001-ST-001",
+          "title": "[Subtask title]",
+          "description": "[Single verifiable change]",
+          "acceptanceCriteria": [
+            "Criterion 1",
+            "Criterion 2",
+            "Typecheck passes"
+          ],
+          "priority": 1,
+          "passes": false,
+          "notes": "",
+          "dependsOn": [],
+          "parallelSafe": false,
+          "estimatedFiles": [],
+          "touches": [
+            "story/US-001"
+          ],
+          "stateWrites": [],
+          "fileBudget": 3
+        }
+      ]
     }
   ]
 }
@@ -45,11 +63,11 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
 
 ## Story Size: The Number One Rule
 
-**Each story must be completable in ONE Ralph iteration (one context window).**
+**Each subtask must be completable in ONE Ralph iteration (one context window).**
 
-Ralph spawns a fresh Amp instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
+Ralph spawns a fresh Codex CLI instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
 
-### Right-sized stories:
+### Right-sized subtasks:
 - Add a database column and migration
 - Add a UI component to an existing page
 - Update a server action with new logic
@@ -60,7 +78,14 @@ Ralph spawns a fresh Amp instance per iteration with no memory of previous work.
 - "Add authentication" - Split into: schema, middleware, login UI, session handling
 - "Refactor the API" - Split into one story per endpoint or pattern
 
-**Rule of thumb:** If you cannot describe the change in 2-3 sentences, it is too big.
+**Rule of thumb:** If you cannot describe the change in 1-2 sentences, or if it spans multiple independent layers, it is too big and must be split into subtasks.
+
+### Hard granularity rules:
+- One subtask = one verifiable change
+- Default file budget = 1-3 core files
+- More than 5 files means the subtask is oversized unless it is a mechanical follow-through
+- Do not combine schema + backend + UI in one subtask unless the change is trivial and inseparable
+- If a story has multiple acceptance criteria that can be implemented independently, split them into separate subtasks
 
 ---
 
@@ -109,27 +134,30 @@ For stories with testable logic, also include:
 
 ### For stories that change UI, also include:
 ```
-"Verify in browser using dev-browser skill"
+"Verify in browser using available Codex browser tooling"
 ```
 
-Frontend stories are NOT complete until visually verified. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+Frontend stories are NOT complete until visually verified when browser tooling is available. Ralph will use available Codex browser tooling to navigate to the page, interact with the UI, and confirm changes work.
 
 ---
 
 ## Conversion Rules
 
-1. **Each user story becomes one JSON entry**
+1. **Each user story becomes one JSON entry with one or more subtasks**
 2. **IDs**: Sequential (US-001, US-002, etc.)
-3. **Priority**: Based on dependency order, then document order
-4. **All stories**: `passes: false` and empty `notes`
+3. **Subtask IDs**: Sequential within each story (US-001-ST-001, US-001-ST-002, etc.)
+4. **Priority**: Based on dependency order, then document order
+5. **All stories and subtasks**: `passes: false` and empty `notes`
 5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-6. **Always add**: "Typecheck passes" to every story's acceptance criteria
+6. **Always add**: "Typecheck passes" to every subtask's acceptance criteria
+7. **Prefer output path**: `scripts/ralph/prd.json` if the directory exists
+8. **Subtasks need conflict metadata**: set `dependsOn`, `parallelSafe`, `touches`, `stateWrites`, and `fileBudget`
 
 ---
 
 ## Splitting Large PRDs
 
-If a PRD has big features, split them:
+If a PRD has big features, split them into subtasks inside a story first, then into additional stories only when the user-facing goals are meaningfully different.
 
 **Original:**
 > "Add user notification system"
@@ -142,7 +170,7 @@ If a PRD has big features, split them:
 5. US-005: Add mark-as-read functionality
 6. US-006: Add notification preferences page
 
-Each is one focused change that can be completed and verified independently.
+Each is one focused change that can be completed and verified independently. When two subtasks are clearly independent, mark them `parallelSafe: true` and give them non-overlapping `touches` / `stateWrites`.
 
 ---
 
@@ -189,7 +217,7 @@ Add ability to mark tasks with different statuses.
         "Each task card shows colored status badge",
         "Badge colors: gray=pending, blue=in_progress, green=done",
         "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Verify in browser using available Codex browser tooling"
       ],
       "priority": 2,
       "passes": false,
@@ -204,7 +232,7 @@ Add ability to mark tasks with different statuses.
         "Changing status saves immediately",
         "UI updates without page refresh",
         "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Verify in browser using available Codex browser tooling"
       ],
       "priority": 3,
       "passes": false,
@@ -218,7 +246,7 @@ Add ability to mark tasks with different statuses.
         "Filter dropdown: All | Pending | In Progress | Done",
         "Filter persists in URL params",
         "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "Verify in browser using available Codex browser tooling"
       ],
       "priority": 4,
       "passes": false,
@@ -250,9 +278,10 @@ Add ability to mark tasks with different statuses.
 Before writing prd.json, verify:
 
 - [ ] **Previous run archived** (if prd.json exists with different branchName, archive it first)
-- [ ] Each story is completable in one iteration (small enough)
+- [ ] Each subtask is completable in one iteration (small enough)
 - [ ] Stories are ordered by dependency (schema to backend to UI)
-- [ ] Every story has "Typecheck passes" as criterion
-- [ ] UI stories have "Verify in browser using dev-browser skill" as criterion
+- [ ] Every subtask has "Typecheck passes" as criterion
+- [ ] UI subtasks have "Verify in browser using available Codex browser tooling" as criterion
 - [ ] Acceptance criteria are verifiable (not vague)
-- [ ] No story depends on a later story
+- [ ] No subtask depends on a later subtask
+- [ ] Each subtask has `touches`, `stateWrites`, and `fileBudget`

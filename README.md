@@ -1,239 +1,349 @@
-# Ralph
+# Ralph Codex
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Ralph Codex is an autonomous AI agent loop that runs fresh Codex CLI instances until all PRD items are complete. Memory persists through git history, `progress.txt`, `prd.json`, and per-iteration logs.
 
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
-
-[Read my in-depth article on how I use Ralph](https://x.com/ryancarson/status/2008548371712135632)
+This fork is based on [snarktank/ralph](https://github.com/snarktank/ralph) and keeps the original Ralph pattern while adding Codex-first automation.
 
 ## Prerequisites
 
-- One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-- `jq` installed (`brew install jq` on macOS)
-- A git repository for your project
+- [Codex CLI](https://github.com/openai/codex) installed and authenticated.
+- A git repository for your target project.
+- PowerShell 7+ on Windows, or Bash on macOS/Linux/WSL.
+- Bash runner dependencies: `jq`, `sed`, `grep`, `tee`, and `seq`.
+- Optional legacy tools:
+  - [Amp CLI](https://ampcode.com)
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ## Setup
 
-### Option 1: Copy to your project
+### Quick Start For Codex CLI
 
-Copy the ralph files into your project:
+Clone this fork, install the skills and runner templates, then restart Codex:
+
+```powershell
+git clone https://github.com/QiJi11/ralph-codex
+Set-Location ralph-codex
+.\install-codex.ps1 -Force
+```
+
+After restart, ask Codex from any local project or Ralph workspace:
+
+```text
+用 RA 跑 inventory-app 的 CSV import MVP
+```
+
+The current supported surface is Codex CLI with local git repositories, PowerShell, and `RalphWorkspace`. Codex App/plugin support is not certified yet; see `APP.md` and `APP_VERIFY.md`.
+
+### Install Into Codex
+
+Install the PRD/Ralph skills and runner templates into your Codex home:
+
+```powershell
+.\install-codex.ps1 -Force
+```
+
+By default this installs to `$env:CODEX_HOME` when set, otherwise `%USERPROFILE%\.codex`:
+
+- `skills\prd`
+- `skills\ralph`
+- `skills\run-ralph`
+- `skills\ralph-auto`
+- `vendor_imports\ralph-codex`
+
+Restart Codex after installing so the skills are discovered.
+
+### Add Ralph To A Project
+
+Copy the Ralph files into your project:
+
+```powershell
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$ralphVendor = Join-Path $codexHome "vendor_imports\ralph-codex"
+New-Item -ItemType Directory -Force -Path scripts\ralph
+Copy-Item (Join-Path $ralphVendor "ralph.ps1") scripts\ralph\
+Copy-Item (Join-Path $ralphVendor "CODEX.md") scripts\ralph\
+Copy-Item (Join-Path $ralphVendor "prd.json.example") scripts\ralph\
+```
+
+Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
+Do not run directly from `prd.json.example`; generate `scripts\ralph\prd.json` with the `ralph` skill first.
+Project-level `scripts\ralph\prd.json` and `scripts\ralph\progress.txt` should be committed as Ralph state.
+
+For Bash-compatible environments:
 
 ```bash
-# From your project root
 mkdir -p scripts/ralph
-cp /path/to/ralph/ralph.sh scripts/ralph/
-
-# Copy the prompt template for your AI tool of choice:
-cp /path/to/ralph/prompt.md scripts/ralph/prompt.md    # For Amp
-# OR
-cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
-
+cp ~/.codex/vendor_imports/ralph-codex/ralph.sh scripts/ralph/
+cp ~/.codex/vendor_imports/ralph-codex/CODEX.md scripts/ralph/
+cp ~/.codex/vendor_imports/ralph-codex/prd.json.example scripts/ralph/
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally (Amp)
+Commit these Ralph files before starting the autonomous loop so Codex iterations only commit story work and Ralph state updates.
+Do not run directly from `prd.json.example`; generate `scripts/ralph/prd.json` with the `ralph` skill first.
+Project-level `scripts/ralph/prd.json` and `scripts/ralph/progress.txt` should be committed as Ralph state.
 
-Copy the skills to your Amp or Claude config for use across all projects:
-
-For AMP
-```bash
-cp -r skills/prd ~/.config/amp/skills/
-cp -r skills/ralph ~/.config/amp/skills/
-```
-
-For Claude Code (manual)
-```bash
-cp -r skills/prd ~/.claude/skills/
-cp -r skills/ralph ~/.claude/skills/
-```
-
-### Option 3: Use as Claude Code Marketplace
-
-Add the Ralph marketplace to Claude Code:
-
-```bash
-/plugin marketplace add snarktank/ralph
-```
-
-Then install the skills:
-
-```bash
-/plugin install ralph-skills@ralph-marketplace
-```
-
-Available skills after installation:
-- `/prd` - Generate Product Requirements Documents
-- `/ralph` - Convert PRDs to prd.json format
-
-Skills are automatically invoked when you ask Claude to:
-- "create a prd", "write prd for", "plan this feature"
-- "convert this prd", "turn into ralph format", "create prd.json"
-
-### Configure Amp auto-handoff (recommended)
-
-Add to `~/.config/amp/settings.json`:
-
-```json
-{
-  "amp.experimental.autoHandoff": { "context": 90 }
-}
-```
-
-This enables automatic handoff when context fills up, allowing Ralph to handle large stories that exceed a single context window.
+Ralph Auto adds a natural-language Codex path that can register projects in a workspace, prepare `scripts\ralph\prd.json`, and run Ralph from the project entrypoint. It is installed by `install-codex.ps1` with the other Codex skills and runner templates.
 
 ## Workflow
 
+### Natural Language Ralph Auto
+
+After installing Ralph Auto, ask Codex for the product outcome directly:
+
+```text
+用 RA 跑 inventory-app 的 CSV import MVP
+```
+
+`RA` is the short alias for Ralph Auto. It tells Codex to write the execution brief, prepare `scripts\ralph\prd.json`, and run Ralph from the workspace entrypoint.
+
+For a registered project, Codex uses the workspace registry at `C:\Users\<current-user>\RalphWorkspace\projects.json`, generates or updates the PRD, converts it to `scripts\ralph\prd.json`, and runs:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxIterations 10
+```
+
+For an unregistered local git project, include the path once:
+
+```text
+用 RA 跑 D:\AtoC\文档\reporting-app 的 reporting MVP
+```
+
+Codex registers the path, initializes Ralph files if needed, prepares `scripts\ralph\prd.json`, then runs the same workspace entrypoint.
+
+Before running Ralph, Codex should state the execution brief: project, goal, assumptions, story list, acceptance checks, and max iterations. If scope or acceptance needs to change, Codex should stop and ask the user instead of silently changing the plan.
+
+RA may use parallel subagents for read-only review, but the main RA flow owns all writes to `scripts\ralph\prd.json`, `scripts\ralph\progress.txt`, project files, and git commits. Use the helper to inspect a registered project without changing files:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app'
+```
+
+For write-capable multi-agent work, Ralph now reasons at the subtask level. On a clean worktree, ordinary `RunProject` can auto-delegate a safe non-conflicting batch to `RunParallel`; explicit `RunParallel` uses the same planner. Parallel workers use isolated git worktrees for subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces:
+
+```powershell
+& "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
+```
+
+Use `-DryRun` to preview selected subtasks, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
+Each parallel worker still runs a normal child Codex iteration and owns exactly one selected subtask.
+
+Ralph builds Codex prompts with stable instructions first and runtime details last. Keep `CODEX.md` focused on durable rules; put changing facts such as current story details, timestamps, logs, and paths in `scripts\ralph\prd.json` or `progress.txt` instead of editing `CODEX.md` each run. Parallel workers share the same stable prefix and only differ in the runtime tail.
+
 ### 1. Create a PRD
 
-Use the PRD skill to generate a detailed requirements document:
+Use the `prd` skill to generate a detailed requirements document:
 
-```
+```text
 Load the prd skill and create a PRD for [your feature description]
 ```
 
-Answer the clarifying questions. The skill saves output to `tasks/prd-[feature-name].md`.
+The skill saves output to `tasks/prd-[feature-name].md`.
 
 ### 2. Convert PRD to Ralph format
 
-Use the Ralph skill to convert the markdown PRD to JSON:
+Use the `ralph` skill to convert the markdown PRD to JSON:
 
-```
-Load the ralph skill and convert tasks/prd-[feature-name].md to prd.json
+```text
+Load the ralph skill and convert tasks/prd-[feature-name].md to scripts/ralph/prd.json
 ```
 
 This creates `prd.json` with user stories structured for autonomous execution.
 
-### 3. Run Ralph
+## Workspace MVP
 
-```bash
-# Using Amp (default)
-./scripts/ralph/ralph.sh [max_iterations]
+Use a Ralph workspace when you want one root folder to manage multiple local projects.
 
-# Using Claude Code
-./scripts/ralph/ralph.sh --tool claude [max_iterations]
+Recommended layout:
+
+```text
+RalphWorkspace\
+  projects.json
+  workspace.ps1
+  projects\
+  tasks\
+  archive\
 ```
 
-Default is 10 iterations. Use `--tool amp` or `--tool claude` to select your AI coding tool.
+Initialize a workspace:
+
+```powershell
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+Copy-Item (Join-Path $codexHome "vendor_imports\ralph-codex\workspace.ps1") .
+.\workspace.ps1 init
+```
+
+Register an existing local git project:
+
+```powershell
+.\workspace.ps1 add-project -Name my-app -Path C:\path\to\my-app
+```
+
+Install Ralph into that project:
+
+```powershell
+.\workspace.ps1 init-project -Project my-app
+```
+
+Run Ralph for that project:
+
+```powershell
+.\workspace.ps1 run -Project my-app -MaxIterations 10
+```
+
+Natural language entry from the workspace root:
+
+```text
+Use Ralph Codex to run my-app for 10 iterations.
+```
+
+### 3. Run Ralph with Codex
+
+Windows PowerShell:
+
+```powershell
+.\scripts\ralph\ralph.ps1 -MaxIterations 10 -ProjectRoot .
+```
+
+Bash, WSL, macOS, or Linux:
+
+```bash
+./scripts/ralph/ralph.sh --tool codex 10
+```
 
 Ralph will:
-1. Create a feature branch (from PRD `branchName`)
-2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+
+1. Read `prd.json`.
+2. Create or switch to the feature branch from PRD `branchName`, unless `RunProject` is continuing an existing dirty baseline.
+3. Pick the highest priority executable subtask where `passes: false`.
+4. Implement that single subtask in a fresh Codex CLI context.
+5. If `RunProject` sees a clean worktree and a safe parallel batch, delegate that batch to `RunParallel`; each worker still implements one subtask.
+6. Run quality checks.
+7. Commit if checks pass.
+8. Update `prd.json` to mark the completed subtask as `passes: true`, then recompute the parent story.
+9. Append learnings to `progress.txt`.
+10. Repeat until all stories pass or max iterations is reached.
+
+For ordinary dirty continuation, `RunProject` stays on the current branch, records the dirty baseline in `progress.txt`, and passes that mode into the Codex runtime context. `RunParallel` and real `CleanupContext` still require a clean worktree.
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
-| `prompt.md` | Prompt template for Amp |
-| `CLAUDE.md` | Prompt template for Claude Code |
-| `prd.json` | User stories with `passes` status (the task list) |
-| `prd.json.example` | Example PRD format for reference |
-| `progress.txt` | Append-only learnings for future iterations |
-| `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
-| `skills/ralph/` | Skill for converting PRDs to JSON (works with Amp and Claude Code) |
-| `.claude-plugin/` | Plugin manifest for Claude Code marketplace discovery |
-| `flowchart/` | Interactive visualization of how Ralph works |
-
-## Flowchart
-
-[![Ralph Flowchart](ralph-flowchart.png)](https://snarktank.github.io/ralph/)
-
-**[View Interactive Flowchart](https://snarktank.github.io/ralph/)** - Click through to see each step with animations.
-
-The `flowchart/` directory contains the source code. To run locally:
-
-```bash
-cd flowchart
-npm install
-npm run dev
-```
+- `ralph.ps1` - PowerShell Codex runner for Windows.
+- `ralph.sh` - Bash runner for Codex, Amp, or Claude Code.
+- `ralph-auto.ps1` - PowerShell workspace helper for natural-language Ralph Auto runs.
+- `CODEX.md` - Instructions given to each Codex CLI instance.
+- `prompt.md` - Legacy prompt template for Amp.
+- `CLAUDE.md` - Legacy prompt template for Claude Code.
+- `prd.json` - Generated user stories with `passes` status.
+- `prd.json.example` - Example PRD format.
+- `progress.txt` - Append-only learnings for future iterations.
+- `runs/` - Generated per-iteration logs.
+- `skills/prd/` - Skill for generating PRDs.
+- `skills/ralph/` - Skill for converting PRDs to JSON.
+- `skills/run-ralph/` - Skill for running a named project from a Ralph workspace.
+- `skills/ralph-auto/` - Skill for natural-language Ralph Auto workflow requests.
+- `workspace.ps1` - Workspace runner for multiple local projects.
+- `workspace.example.json` - Example workspace project registry.
+- `WORKSPACE.md` - Workspace usage guide.
+- `.codex-plugin/` - Optional Codex plugin manifest.
+- `.claude-plugin/` - Legacy Claude Code marketplace manifest.
+- `flowchart/` - Interactive visualization of how Ralph works.
 
 ## Critical Concepts
 
-### Each Iteration = Fresh Context
+### Each Iteration Has Fresh Context
 
-Each iteration spawns a **new AI instance** (Amp or Claude Code) with clean context. The only memory between iterations is:
-- Git history (commits from previous iterations)
-- `progress.txt` (learnings and context)
-- `prd.json` (which stories are done)
+Each iteration launches a new Codex CLI process. The only memory between iterations is:
+
+- Git history.
+- `progress.txt`.
+- `prd.json`.
+- `runs/` logs.
+- Updated `AGENTS.md` files.
 
 ### Small Tasks
 
-Each PRD item should be small enough to complete in one context window. If a task is too big, the LLM runs out of context before finishing and produces poor code.
+Each executable subtask should be small enough to complete in one context window.
 
-Right-sized stories:
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
+Right-sized subtasks:
 
-Too big (split these):
-- "Build the entire dashboard"
-- "Add authentication"
-- "Refactor the API"
+- Add a database column and migration.
+- Add a UI component to an existing page.
+- Update one server action.
+- Add a filter dropdown to a list.
 
-### AGENTS.md Updates Are Critical
+Too large:
 
-After each iteration, Ralph updates the relevant `AGENTS.md` files with learnings. This is key because AI coding tools automatically read these files, so future iterations (and future human developers) benefit from discovered patterns, gotchas, and conventions.
+- Build the entire dashboard.
+- Add authentication.
+- Refactor the whole API.
 
-Examples of what to add to AGENTS.md:
-- Patterns discovered ("this codebase uses X for Y")
-- Gotchas ("do not forget to update Z when changing W")
-- Useful context ("the settings panel is in component X")
+Stories may contain multiple subtasks. Ralph can split oversized legacy stories into subtasks, then analyze whether safe independent subtasks can run in parallel.
+Explicit subtasks with `estimatedFiles` greater than `fileBudget` fail execution planning and must be split before `RunProject` or `RunParallel` starts.
 
 ### Feedback Loops
 
-Ralph only works if there are feedback loops:
-- Typecheck catches type errors
-- Tests verify behavior
-- CI must stay green (broken code compounds across iterations)
+Ralph only works if there are checks Codex can run:
 
-### Browser Verification for UI Stories
-
-Frontend stories must include "Verify in browser using dev-browser skill" in acceptance criteria. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+- Typecheck catches type errors.
+- Tests verify behavior.
+- Build catches integration issues.
+- Browser verification catches UI regressions when browser tools are available.
 
 ### Stop Condition
 
-When all stories have `passes: true`, Ralph outputs `<promise>COMPLETE</promise>` and the loop exits.
+When all stories have `passes: true`, Codex outputs:
+
+```text
+<promise>COMPLETE</promise>
+```
+
+The runner exits successfully when it sees that signal, the PRD is fully passing, and the latest `progress.txt` entry reports final deliverable paths or explicit `none`.
 
 ## Debugging
 
-Check current state:
+PowerShell:
 
-```bash
-# See which stories are done
-cat prd.json | jq '.userStories[] | {id, title, passes}'
-
-# See learnings from previous iterations
-cat progress.txt
-
-# Check git history
+```powershell
+Get-Content .\scripts\ralph\prd.json -Raw | ConvertFrom-Json | Select-Object -ExpandProperty userStories | Select-Object id,title,passes
+Get-Content .\scripts\ralph\progress.txt
+Get-ChildItem .\scripts\ralph\runs
 git log --oneline -10
 ```
 
-## Customizing the Prompt
+Run the Ralph Auto regression smoke before and after changing RA orchestration:
 
-After copying `prompt.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your project, customize it for your project:
-- Add project-specific quality check commands
-- Include codebase conventions
-- Add common gotchas for your stack
+```powershell
+.\scripts\test-ra-smoke.ps1
+```
 
-## Archiving
+Bash:
 
-Ralph automatically archives previous runs when you start a new feature (different `branchName`). Archives are saved to `archive/YYYY-MM-DD-feature-name/`.
+```bash
+cat scripts/ralph/prd.json | jq '.userStories[] | {id, title, passes}'
+cat scripts/ralph/progress.txt
+ls scripts/ralph/runs
+git log --oneline -10
+```
+
+## Legacy Tool Support
+
+The Bash runner still supports the original tools:
+
+```bash
+./scripts/ralph/ralph.sh --tool amp 10
+./scripts/ralph/ralph.sh --tool claude 10
+```
+
+PowerShell support is Codex-only.
 
 ## References
 
+- [Original Ralph project](https://github.com/snarktank/ralph)
 - [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
-- [Amp documentation](https://ampcode.com/manual)
-- [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [Codex CLI](https://github.com/openai/codex)
+- [Codex App support status](APP.md)
+- [Codex App verification checklist](APP_VERIFY.md)
+- [CLI verification checklist](VERIFY.md)

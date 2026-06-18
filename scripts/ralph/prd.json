@@ -1,0 +1,121 @@
+{
+  "project": "ralph-codex",
+  "branchName": "codex-support",
+  "description": "Tighten remaining Ralph Auto UX and planning enforcement after subtask execution rollout.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Improve missing-state review guidance",
+      "description": "As an RA user, I want ReviewProject to clearly tell me the next action when scripts/ralph state is missing so I can hand off or initialize without guessing.",
+      "priority": 1,
+      "passes": true,
+      "notes": "",
+      "subtasks": [
+        {
+          "id": "US-001-ST-001",
+          "title": "Add explicit next-step hints when PRD or progress is missing",
+          "description": "Update review output so missing Ralph state reports actionable next steps for plan handoff, init, or rerun.",
+          "acceptanceCriteria": [
+            "ReviewProject reports actionable next steps when scripts/ralph/prd.json is missing",
+            "ReviewProject reports actionable next steps when progress.txt is missing",
+            "Typecheck passes"
+          ],
+          "priority": 1,
+          "passes": true,
+          "notes": "",
+          "dependsOn": [],
+          "parallelSafe": false,
+          "estimatedFiles": [
+            "ralph-auto.ps1",
+            "WORKSPACE.md"
+          ],
+          "touches": [
+            "ra/review-output"
+          ],
+          "stateWrites": [],
+          "fileBudget": 2,
+          "splitRequired": false,
+          "sourceStoryId": "US-001"
+        }
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Enforce oversized subtask planning failures",
+      "description": "As an RA maintainer, I want oversized subtasks to fail planning when configured limits are exceeded so the agent cannot quietly under-split work.",
+      "priority": 2,
+      "passes": true,
+      "notes": "",
+      "subtasks": [
+        {
+          "id": "US-002-ST-001",
+          "title": "Fail execution planning for oversized explicit subtasks",
+          "description": "Make planning reject subtasks whose estimatedFiles exceed fileBudget instead of only serializing them.",
+          "acceptanceCriteria": [
+            "Execution planning throws a clear error when estimatedFiles count exceeds fileBudget for an explicit subtask",
+            "The error tells the user to split the subtask before execution",
+            "Typecheck passes"
+          ],
+          "priority": 1,
+          "passes": true,
+          "notes": "",
+          "dependsOn": [],
+          "parallelSafe": false,
+          "estimatedFiles": [
+            "ralph-auto.ps1",
+            "README.md"
+          ],
+          "touches": [
+            "ra/planning"
+          ],
+          "stateWrites": [],
+          "fileBudget": 2,
+          "splitRequired": false,
+          "sourceStoryId": "US-002"
+        }
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Document and verify remaining behavior",
+      "description": "As an RA user, I want the remaining docs and smoke checks to match actual behavior so I can rely on the workflow.",
+      "priority": 3,
+      "passes": true,
+      "notes": "",
+      "subtasks": [
+        {
+          "id": "US-003-ST-001",
+          "title": "Refresh docs and record final verification",
+          "description": "Update any stale docs for the new review/planning behavior and run the final smoke checks needed for this feature set.",
+          "acceptanceCriteria": [
+            "Docs mention actionable missing-state review guidance and oversized-subtask failure behavior",
+            "RunParallel dry-run smoke still succeeds for parallel-safe independent subtasks",
+            "git diff --check passes",
+            "Typecheck passes"
+          ],
+          "priority": 1,
+          "passes": true,
+          "notes": "",
+          "dependsOn": [
+            "US-001-ST-001",
+            "US-002-ST-001"
+          ],
+          "parallelSafe": false,
+          "estimatedFiles": [
+            "README.md",
+            "WORKSPACE.md",
+            "skills/ralph-auto/SKILL.md"
+          ],
+          "touches": [
+            "docs/workflow"
+          ],
+          "stateWrites": [],
+          "fileBudget": 3,
+          "splitRequired": false,
+          "sourceStoryId": "US-003"
+        }
+      ]
+    }
+  ],
+  "dirtyBaseline": "Dirty baseline continuation on branch codex-support at 2026-06-17T23:49:46.3457776+08:00."
+}

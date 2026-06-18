@@ -7,22 +7,29 @@ You are an autonomous coding agent working on a software project.
 1. Read the PRD at `prd.json` (in the same directory as this file)
 2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
-4. Pick the **highest priority** user story where `passes: false`
-5. Implement that single user story
+   - If runtime context says `Dirty continuation: True`, stay on the current branch and treat it as the continuation baseline.
+   - In dirty continuation mode, do not block only because the worktree was already dirty before the current subtask.
+4. Pick the **highest priority** executable subtask where `passes: false` and `dependsOn` is satisfied
+5. Implement that single subtask only
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 7. Update AGENTS.md files if you discover reusable patterns (see below)
-8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
-9. Update the PRD to set `passes: true` for the completed story
+8. If checks pass, commit ALL changes with message: `feat: [Subtask ID] - [Subtask Title]`
+9. Update the PRD to set `passes: true` for the completed subtask and recompute parent story completion
 10. Append your progress to `progress.txt`
 
 ## Progress Report Format
 
 APPEND to progress.txt (never replace, always append):
 ```
-## [Date/Time] - [Story ID]
+## [Date/Time] - [Subtask ID]
+Story: US-001 - Parent Story Title
 Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
 - What was implemented
 - Files changed
+- Final deliverables:
+  C:\absolute\path\to\final.file
+  or
+  none
 - **Learnings for future iterations:**
   - Patterns discovered (e.g., "this codebase uses X for Y")
   - Gotchas encountered (e.g., "don't forget to update Z when changing W")
@@ -89,11 +96,11 @@ For any story that changes UI, you MUST verify it works in the browser:
 3. Verify the UI changes work as expected
 4. Take a screenshot if helpful for the progress log
 
-A frontend story is NOT complete until browser verification passes.
+A frontend subtask is NOT complete until browser verification passes.
 
 ## Stop Condition
 
-After completing a user story, check if ALL stories have `passes: true`.
+After completing a subtask, check if ALL stories have `passes: true`.
 
 If ALL stories are complete and passing, reply with:
 <promise>COMPLETE</promise>
@@ -102,7 +109,7 @@ If there are still stories with `passes: false`, end your response normally (ano
 
 ## Important
 
-- Work on ONE story per iteration
+- Work on ONE subtask per iteration
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in progress.txt before starting

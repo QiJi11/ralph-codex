@@ -1,11 +1,11 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ./ralph.sh [--tool amp|claude] [max_iterations]
+# Usage: ./ralph.sh [--tool amp|claude|codex] [max_iterations]
 
 set -e
 
 # Parse arguments
-TOOL="amp"  # Default to amp for backwards compatibility
+TOOL="codex"  # Default to Codex for this fork
 MAX_ITERATIONS=10
 
 while [[ $# -gt 0 ]]; do
@@ -29,10 +29,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate tool choice
-if [[ "$TOOL" != "amp" && "$TOOL" != "claude" ]]; then
-  echo "Error: Invalid tool '$TOOL'. Must be 'amp' or 'claude'."
+if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "codex" ]]; then
+  echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', or 'codex'."
   exit 1
 fi
+
+if [[ "$TOOL" == "codex" ]] && ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required for the Bash Codex runner."
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
@@ -90,17 +96,44 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # Run the selected tool with the ralph prompt
   if [[ "$TOOL" == "amp" ]]; then
     OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
-  else
+  elif [[ "$TOOL" == "claude" ]]; then
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
     OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+  else
+    # Codex CLI: run non-interactively with approvals and sandbox disabled for autonomous operation.
+    set +e
+    TMP_OUTPUT=$(mktemp)
+    {
+      cat <<EOF
+Ralph Runtime Context:
+- Script directory: $SCRIPT_DIR
+- PRD file: $PRD_FILE
+- Progress file: $PROGRESS_FILE
+- Invocation working directory: $PWD
+
+EOF
+      cat "$SCRIPT_DIR/CODEX.md"
+    } | codex exec --dangerously-bypass-approvals-and-sandbox -C "$PWD" - 2>&1 | tee "$TMP_OUTPUT"
+    CODEX_STATUS=${PIPESTATUS[1]}
+    OUTPUT=$(cat "$TMP_OUTPUT")
+    rm -f "$TMP_OUTPUT"
+    set -e
+    if [[ "$CODEX_STATUS" -ne 0 ]]; then
+      echo "Codex iteration failed with exit code $CODEX_STATUS"
+      exit "$CODEX_STATUS"
+    fi
   fi
   
   # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>" && [ "$(jq '[.userStories[] | select(.passes != true)] | length' "$PRD_FILE")" -eq 0 ]; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
+  fi
+
+  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+    echo "Codex emitted completion signal, but prd.json still has unfinished stories. Continuing..."
   fi
   
   echo "Iteration $i complete. Continuing..."
