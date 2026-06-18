@@ -48,7 +48,7 @@ RA can use parallel subagents for read-only review, but only the main RA flow sh
 
 Ordinary `RunProject` can continue a dirty baseline. In that mode it stays on the current branch, records the baseline in `progress.txt`, and tells the runner not to enforce PRD `branchName` checkout for that run.
 
-For write-capable multi-agent runs, use `用 RA 并行跑 ...` or let RA auto-detect a safe parallel batch. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and runs subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces.
+For write-capable multi-agent runs, use `用 RA 并行跑 ...` or let ordinary `RunProject` auto-detect a safe parallel batch on a clean worktree. Parallel mode creates isolated git worktrees under `RalphWorkspace\tasks` and runs subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces. Each worker still performs one child Codex iteration for one subtask.
 
 Ralph prompts are cache-friendly by design: stable instructions from `CODEX.md` are placed before runtime-specific values. Keep `CODEX.md` stable across runs, and put changing story details, logs, timestamps, and paths in `scripts\ralph\prd.json` or `progress.txt`.
 

@@ -16,7 +16,7 @@ Use the `Ralph Runtime Context` block provided by the runner as the source of tr
    - Create new story branches from the repository default branch. Prefer `origin/HEAD`, then `main`, then `master`. Stop and report the blocker if none can be identified.
    - If `Ralph Runtime Context` says `Dirty continuation: True`, do not switch branches and do not require the current branch to equal PRD `branchName`; treat the runtime `Current branch` as the continuation baseline.
    - In dirty continuation mode, do not treat the pre-existing dirty baseline as unrelated work. Only stop if new evidence shows changes outside the recorded baseline would be overwritten or conflict with the current subtask.
-4. Pick exactly one executable subtask: the highest priority `subtasks[]` item where `passes` is `false` and `dependsOn` is already satisfied. If a story has no explicit subtasks, treat it as one legacy fallback subtask only long enough to normalize the PRD.
+4. Pick exactly one executable subtask for this child Codex iteration: the highest priority `subtasks[]` item where `passes` is `false` and `dependsOn` is already satisfied. If a story has no explicit subtasks, treat it as one legacy fallback subtask only long enough to normalize the PRD. Parent-level `RunParallel` may launch multiple isolated workers, but each worker still follows this one-subtask rule.
 5. Implement only that subtask. Do not opportunistically complete sibling subtasks in the same iteration.
 6. Run the project quality checks required by the subtask and by repository conventions, such as typecheck, lint, tests, or build.
 7. For UI subtasks, verify the change in a browser when browser tools are available. If the acceptance criteria require browser verification and browser tools are unavailable, do not set `passes: true`; record the missing verification in `progress.txt` and stop unless the PRD explicitly allows manual verification as sufficient.
@@ -92,7 +92,7 @@ If unfinished stories remain, end normally. Ralph will launch a fresh Codex cont
 
 ## Important
 
-- Work on one subtask per iteration.
+- Work on one subtask per child Codex iteration.
 - Prefer small, reviewable commits.
 - Keep CI and local checks green.
 - Do not edit unrelated code.

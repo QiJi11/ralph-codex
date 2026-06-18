@@ -23,7 +23,7 @@ Recommended user phrase:
 用 RA 跑 <project> 的 <task>
 ```
 
-Use parallel mode only when the user explicitly says `并行`, `parallel`, asks for multiple RA agents, or explicitly asks for isolated parallel execution:
+Use explicit parallel mode when the user says `并行`, `parallel`, asks for multiple RA agents, or asks for isolated parallel execution. Ordinary `RunProject` may also auto-delegate to `RunParallel` when the worktree is clean and execution planning finds a safe non-conflicting batch:
 
 ```text
 用 RA 并行跑 <project> 的 <task>
@@ -113,7 +113,7 @@ Rules:
 - Each worker receives a PRD containing only its assigned subtask and parent story context.
 - Main RA merges successful worker branches back into the project.
 - If a worker fails or a merge conflicts, stop and ask the user; do not rewrite the plan.
-- Use `-DryRun` before risky parallel runs to show selected subtasks and worktree paths.
+- Use `-DryRun` before risky or user-requested parallel runs to show selected subtasks and worktree paths.
 - `RunParallel` still takes the project lock for the duration of the write-capable run.
 
 ## Dirty Continuation Policy
@@ -125,7 +125,7 @@ Rules:
 - Do not ask the user to commit first for ordinary continuation.
 - Do not switch branches.
 - Do not auto-commit the baseline.
-- Do not upgrade the run into `RunParallel`.
+- Do not upgrade a dirty run into `RunParallel`.
 - Record the dirty baseline in the execution brief and `scripts\ralph\progress.txt`.
 - Pass dirty continuation into the Ralph runner so the child Codex process stays on the current branch and does not require PRD `branchName` checkout for that run.
 
@@ -209,7 +209,7 @@ When the user says `RA 上面的内容`, `用 RA 跑刚才的 plan`, `把上面�
 - Use a feature branch name under `ralph/`.
 - If a story is still broad, split it before execution into subtasks with `dependsOn`, `parallelSafe`, `touches`, `stateWrites`, and `fileBudget`.
 - If an explicit subtask has more `estimatedFiles` than `fileBudget`, execution planning fails and the subtask must be split before running RA.
-- If safe independent subtasks exist, prefer automatic parallel execution over manual serial execution.
+- If safe independent subtasks exist and the project worktree is clean, prefer automatic parallel execution over manual serial execution.
 
 ## PowerShell Examples
 

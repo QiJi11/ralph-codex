@@ -121,13 +121,14 @@ RA may use parallel subagents for read-only review, but the main RA flow owns al
 & "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command ReviewProject -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app'
 ```
 
-For write-capable multi-agent work, Ralph now reasons at the subtask level. It can auto-detect safe parallel batches and uses isolated git worktrees for subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces:
+For write-capable multi-agent work, Ralph now reasons at the subtask level. On a clean worktree, ordinary `RunProject` can auto-delegate a safe non-conflicting batch to `RunParallel`; explicit `RunParallel` uses the same planner. Parallel workers use isolated git worktrees for subtasks marked `parallelSafe: true` with satisfied `dependsOn` and non-conflicting file/state surfaces:
 
 ```powershell
 & "$env:CODEX_HOME\vendor_imports\ralph-codex\ralph-auto.ps1" -Command RunParallel -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'inventory-app' -MaxWorkers 2 -MaxIterations 3
 ```
 
 Use `-DryRun` to preview selected subtasks, worktree paths, and branches before workers start. If a worker fails or a merge conflicts, RA preserves the worktrees and stops for human review.
+Each parallel worker still runs a normal child Codex iteration and owns exactly one selected subtask.
 
 Ralph builds Codex prompts with stable instructions first and runtime details last. Keep `CODEX.md` focused on durable rules; put changing facts such as current story details, timestamps, logs, and paths in `scripts\ralph\prd.json` or `progress.txt` instead of editing `CODEX.md` each run. Parallel workers share the same stable prefix and only differ in the runtime tail.
 
@@ -218,11 +219,12 @@ Ralph will:
 2. Create or switch to the feature branch from PRD `branchName`, unless `RunProject` is continuing an existing dirty baseline.
 3. Pick the highest priority executable subtask where `passes: false`.
 4. Implement that single subtask in a fresh Codex CLI context.
-5. Run quality checks.
-6. Commit if checks pass.
-7. Update `prd.json` to mark the completed subtask as `passes: true`, then recompute the parent story.
-8. Append learnings to `progress.txt`.
-9. Repeat until all stories pass or max iterations is reached.
+5. If `RunProject` sees a clean worktree and a safe parallel batch, delegate that batch to `RunParallel`; each worker still implements one subtask.
+6. Run quality checks.
+7. Commit if checks pass.
+8. Update `prd.json` to mark the completed subtask as `passes: true`, then recompute the parent story.
+9. Append learnings to `progress.txt`.
+10. Repeat until all stories pass or max iterations is reached.
 
 For ordinary dirty continuation, `RunProject` stays on the current branch, records the dirty baseline in `progress.txt`, and passes that mode into the Codex runtime context. `RunParallel` and real `CleanupContext` still require a clean worktree.
 
