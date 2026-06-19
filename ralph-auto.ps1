@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "CreateAdhocProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunParallel", "CleanupContext")]
+    [ValidateSet("InitWorkspace", "ListProjects", "AddProject", "CreateAdhocProject", "InitProject", "InitializeProject", "ReviewProject", "RunProject", "RunProjectIsolated", "RunParallel", "CleanupContext")]
     [string]$Command,
 
     [string]$WorkspaceRoot = (Join-Path $env:USERPROFILE "RalphWorkspace"),
@@ -14,6 +14,8 @@ param(
     [switch]$NoMerge,
     [switch]$CleanupOnSuccess,
     [switch]$ArchiveProgress,
+    [switch]$MergeOnSuccess,
+    [string]$PrdPath = "",
     [switch]$DryRun
 )
 
@@ -719,7 +721,19 @@ function Get-RalphAutoLockConflictMessage {
     $startedAt = if ($null -ne $record) { [string]$record.startedAt } else { "unknown" }
     $runId = if ($null -ne $record) { [string]$record.runId } else { "unknown" }
     $pidText = if ($null -ne $record) { [string]$record.pid } else { "unknown" }
-    return "Project '$ProjectName' is already locked by active Ralph session $runId (mode=$mode pid=$pidText started=$startedAt). Wait for it to finish, inspect the lock with ReviewProject, or use RunParallel if isolated parallel work is intended."
+    return "Project '$ProjectName' is already locked by active Ralph session $runId (mode=$mode pid=$pidText started=$startedAt). RunProject will use RunProjectIsolated for a separate worktree, or inspect the lock with ReviewProject if shared project state is required."
+}
+
+# Returns true when an exception is a project lock conflict.
+function Test-RalphAutoLockConflictError {
+    param([object]$ErrorRecord)
+
+    if ($null -eq $ErrorRecord) {
+        return $false
+    }
+
+    $message = [string]$ErrorRecord.Exception.Message
+    return $message -match "already locked by active Ralph session"
 }
 
 # Writes a new project lock record, replacing stale locks when needed.
@@ -1026,6 +1040,140 @@ function Copy-RalphAutoTemplates {
     }
 }
 
+# Runs a project's PRD in an isolated git worktree with independent Ralph state.
+function Invoke-RalphAutoIsolatedProject {
+    param(
+        [string]$Root,
+        [string]$Name,
+        [int]$Iterations,
+        [string]$RequestedModel,
+        [string]$ExternalPrdPath,
+        [bool]$ShouldMergeOnSuccess,
+        [bool]$RemoveSuccessfulWorktree
+    )
+
+    Assert-RalphAutoValue -Name "Project" -Value $Name
+
+    $registry = Read-RalphAutoRegistry -Root $Root
+    $projectRecord = Get-RalphAutoProject -Registry $registry -Name $Name
+    $projectRoot = Resolve-RalphAutoProjectPath -Path $projectRecord.path
+    $sourcePrdPath = if ([string]::IsNullOrWhiteSpace($ExternalPrdPath)) {
+        Join-Path $projectRoot "scripts\ralph\prd.json"
+    } else {
+        (Resolve-Path -LiteralPath $ExternalPrdPath).Path
+    }
+
+    if (-not (Test-Path -LiteralPath $sourcePrdPath)) {
+        throw "Missing PRD for RunProjectIsolated: $sourcePrdPath"
+    }
+
+    $runId = New-RalphAutoRunId -Mode "RunProjectIsolated"
+    $safeProject = Get-RalphAutoSafeName -Value $Name
+    $taskRoot = Join-Path $Root "tasks\$safeProject\$runId"
+    $worktreePath = Join-Path $taskRoot "main"
+    $branchName = "ralph/isolated/$safeProject/$runId"
+    $baseBranch = (& $GitCommand -C $projectRoot branch --show-current)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baseBranch)) {
+        throw "Cannot determine current branch for $projectRoot"
+    }
+
+    Write-Host "RunProjectIsolated project: $Name"
+    Write-Host "Project root: $projectRoot"
+    Write-Host "Base branch: $baseBranch"
+    Write-Host "Worktree: $worktreePath"
+    Write-Host "Branch: $branchName"
+    Write-Host "Source PRD: $sourcePrdPath"
+
+    New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
+    & $GitCommand -C $projectRoot worktree add -b $branchName $worktreePath $baseBranch | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create isolated worktree: $worktreePath"
+    }
+
+    try {
+        Copy-RalphAutoTemplates -ProjectRoot $worktreePath
+
+        $workerRalphDir = Join-Path $worktreePath "scripts\ralph"
+        $workerPrdPath = Join-Path $workerRalphDir "prd.json"
+        $workerProgressPath = Join-Path $workerRalphDir "progress.txt"
+        Copy-Item -LiteralPath $sourcePrdPath -Destination $workerPrdPath -Force
+
+        $workerPrd = Get-Content -LiteralPath $workerPrdPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $workerPrd = Update-RalphAutoPrdStories -PrdPath $workerPrdPath -Prd $workerPrd
+        if (Test-RalphAutoProperty -Object $workerPrd -Name "branchName") {
+            $workerPrd.branchName = $branchName
+        } else {
+            $workerPrd | Add-Member -NotePropertyName "branchName" -NotePropertyValue $branchName
+        }
+        if (Test-RalphAutoProperty -Object $workerPrd -Name "runId") {
+            $workerPrd.runId = $runId
+        } else {
+            $workerPrd | Add-Member -NotePropertyName "runId" -NotePropertyValue $runId
+        }
+        $workerPrd | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $workerPrdPath -Encoding UTF8
+
+        $runnerPath = Join-Path $workerRalphDir "ralph.ps1"
+        $workerArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $runnerPath,
+            "-ProjectRoot",
+            $worktreePath,
+            "-RalphDir",
+            $workerRalphDir,
+            "-RunId",
+            $runId,
+            "-MaxIterations",
+            $Iterations
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($RequestedModel)) {
+            $workerArgs += @("-Model", $RequestedModel)
+        }
+
+        Write-Host "Running isolated Ralph project: $Name"
+        Write-Host "Command: pwsh $($workerArgs -join ' ')"
+        & pwsh @workerArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Isolated Ralph exited with code $LASTEXITCODE"
+        }
+
+        if ($ShouldMergeOnSuccess) {
+            Assert-RalphAutoCleanGit -Path $projectRoot
+            Write-Host "Merging isolated branch $branchName"
+            & $GitCommand -C $projectRoot merge --no-ff $branchName -m "merge: isolated RA run $runId" | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Merge conflict or merge failure. Worktree preserved: $worktreePath"
+                throw "Failed to merge isolated branch $branchName"
+            }
+        } else {
+            Write-Host "MergeOnSuccess not set. Isolated branch was left unmerged."
+        }
+
+        if ($RemoveSuccessfulWorktree) {
+            & $GitCommand -C $projectRoot worktree remove $worktreePath --force | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to remove isolated worktree: $worktreePath"
+            }
+        }
+
+        Write-Host "RunProjectIsolated completed."
+        Write-Host "Isolated worktree: $worktreePath"
+        Write-Host "Isolated branch: $branchName"
+        Write-Host "Isolated PRD: $workerPrdPath"
+        Write-Host "Isolated progress: $workerProgressPath"
+        if (-not $ShouldMergeOnSuccess) {
+            Write-Host "To merge later: git -C `"$projectRoot`" merge --no-ff $branchName"
+        }
+    }
+    catch {
+        Write-Host "Isolated run did not complete cleanly. Worktree preserved: $worktreePath"
+        throw
+    }
+}
+
 # Returns a registered project record by name.
 function Get-RalphAutoProject {
     param(
@@ -1278,7 +1426,19 @@ function Invoke-RalphAutoProject {
         $prd = Update-RalphAutoPrdStories -PrdPath $prdPath -Prd $prd
         $executionPlan = New-RalphAutoExecutionPlan -Prd $prd
     }
-    $lockRecord = Acquire-RalphAutoProjectLock -ProjectName $Name -ProjectRoot $projectRoot -WorkspaceRoot $Root -Mode "RunProject" -RunId $runId
+    try {
+        $lockRecord = Acquire-RalphAutoProjectLock -ProjectName $Name -ProjectRoot $projectRoot -WorkspaceRoot $Root -Mode "RunProject" -RunId $runId
+    }
+    catch {
+        if (Test-RalphAutoLockConflictError -ErrorRecord $_) {
+            Write-Host ([string]$_.Exception.Message)
+            Write-Host "Active same-project RA detected. Starting an isolated worktree run instead of overwriting shared Ralph state."
+            Invoke-RalphAutoIsolatedProject -Root $Root -Name $Name -Iterations $Iterations -RequestedModel $RequestedModel -ExternalPrdPath $prdPath -ShouldMergeOnSuccess:$false -RemoveSuccessfulWorktree:$false
+            return
+        }
+
+        throw
+    }
     Write-RalphAutoSessionHeader -ProgressPath $progressPath -ProjectName $Name -Mode "RunProject" -RunId $runId -Branch $branch
     if ($null -ne $executionPlan) {
         Write-RalphAutoExecutionAnalysis -ProgressPath $progressPath -RunId $runId -Plan $executionPlan
@@ -1734,6 +1894,9 @@ switch ($Command) {
     }
     "RunProject" {
         Invoke-RalphAutoProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -RequestedModel $Model
+    }
+    "RunProjectIsolated" {
+        Invoke-RalphAutoIsolatedProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -RequestedModel $Model -ExternalPrdPath $PrdPath -ShouldMergeOnSuccess:$MergeOnSuccess.IsPresent -RemoveSuccessfulWorktree:$CleanupOnSuccess.IsPresent
     }
     "RunParallel" {
         Invoke-RalphAutoParallelProject -Root $WorkspaceRoot -Name $Project -Iterations $MaxIterations -Workers $MaxWorkers -RequestedModel $Model -SkipMerge:$NoMerge.IsPresent -RemoveSuccessfulWorktrees:$CleanupOnSuccess.IsPresent -PreviewOnly:$DryRun.IsPresent

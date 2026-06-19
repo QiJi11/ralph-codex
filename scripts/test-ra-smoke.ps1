@@ -365,6 +365,74 @@ try {
     Assert-SmokeText -Text $reviewAfterParallel -Pattern "Active lock: none" -Message "Project lock was not released after RunParallel."
     Assert-SmokeText -Text $reviewAfterParallel -Pattern "Pending subtasks: 0" -Message "ReviewProject did not report completed subtasks after RunParallel."
 
+    $isolatedBasePrd = @'
+{
+  "project": "ra-smoke",
+  "branchName": "main",
+  "description": "locked main prd",
+  "userStories": [
+    {
+      "id": "US-LOCKED",
+      "title": "Locked main state",
+      "description": "This PRD must not be overwritten by isolated fallback.",
+      "priority": 1,
+      "passes": false,
+      "notes": "",
+      "subtasks": [
+        {
+          "id": "US-LOCKED-ST-001",
+          "title": "Locked",
+          "description": "Preserve main PRD.",
+          "acceptanceCriteria": ["Typecheck passes"],
+          "priority": 1,
+          "passes": false,
+          "notes": "",
+          "dependsOn": [],
+          "parallelSafe": false,
+          "estimatedFiles": ["docs/locked.md"],
+          "touches": ["docs/locked"],
+          "stateWrites": [],
+          "fileBudget": 1
+        }
+      ]
+    }
+  ]
+}
+'@
+    Set-SmokePrd -ProjectRoot $projectRoot -Json $isolatedBasePrd
+    $lockHolder = Start-Process -FilePath $script:PwshCommand -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -PassThru -WindowStyle Hidden
+    try {
+        $lockPath = Join-Path $projectRoot "scripts\ralph\.run-lock.json"
+        $lockRecord = [ordered]@{
+            project = $projectName
+            mode = "RunProject"
+            pid = $lockHolder.Id
+            host = $env:COMPUTERNAME
+            startedAt = (Get-Date -Format o)
+            workspaceRoot = $WorkspaceRoot
+            projectRoot = $projectRoot
+            branch = "main"
+            runId = "smoke-active-lock"
+        }
+        $lockRecord | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $lockPath -Encoding UTF8
+
+        $env:PATH = "$shimDir;$originalPath"
+        $isolatedOutput = Invoke-SmokeRalphAuto -Arguments @("-Command", "RunProject", "-WorkspaceRoot", $WorkspaceRoot, "-Project", $projectName, "-MaxIterations", "1")
+        Assert-SmokeText -Text $isolatedOutput -Pattern "Starting an isolated worktree run" -Message "RunProject did not fall back to isolated mode under an active lock."
+        Assert-SmokeText -Text $isolatedOutput -Pattern "RunProjectIsolated completed" -Message "Isolated fallback did not complete."
+        Assert-SmokeText -Text $isolatedOutput -Pattern "Isolated worktree:" -Message "Isolated fallback did not report worktree path."
+        Assert-SmokeText -Text $isolatedOutput -Pattern "Isolated PRD:" -Message "Isolated fallback did not report PRD path."
+
+        $mainPrdAfterIsolated = Get-Content -LiteralPath (Join-Path $projectRoot "scripts\ralph\prd.json") -Raw -Encoding UTF8
+        Assert-SmokeText -Text $mainPrdAfterIsolated -Pattern "US-LOCKED" -Message "Isolated fallback overwrote the main project PRD."
+    }
+    finally {
+        if ($null -ne $lockHolder -and -not $lockHolder.HasExited) {
+            Stop-Process -Id $lockHolder.Id -Force
+        }
+        Remove-Item -LiteralPath (Join-Path $projectRoot "scripts\ralph\.run-lock.json") -Force -ErrorAction SilentlyContinue
+    }
+
     New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot "scripts\ralph\runs") | Out-Null
     "old run" | Set-Content -LiteralPath (Join-Path $projectRoot "scripts\ralph\runs\old.log") -Encoding UTF8
     $cleanupDryRunOutput = Invoke-SmokeRalphAuto -Arguments @("-Command", "CleanupContext", "-WorkspaceRoot", $WorkspaceRoot, "-Project", $projectName, "-KeepLastRuns", "0", "-DryRun")
@@ -433,6 +501,11 @@ try {
 finally {
     $env:PATH = $originalPath
     Remove-SmokeProjectRegistration -Root $WorkspaceRoot -Name $projectName
+    $taskProjectRoot = Join-Path $WorkspaceRoot "tasks\$projectName"
+    if (Test-Path -LiteralPath $taskProjectRoot) {
+        & $script:GitCommand -C $projectRoot worktree prune | Out-Null
+        Remove-Item -LiteralPath $taskProjectRoot -Recurse -Force
+    }
     if (Test-Path -LiteralPath $projectRoot) {
         Remove-Item -LiteralPath $projectRoot -Recurse -Force
     }

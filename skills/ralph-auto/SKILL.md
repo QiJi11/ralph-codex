@@ -23,7 +23,7 @@ Recommended user phrase:
 用 RA 跑 <project> 的 <task>
 ```
 
-Use explicit parallel mode when the user says `并行`, `parallel`, asks for multiple RA agents, or asks for isolated parallel execution. Ordinary `RunProject` may also auto-delegate to `RunParallel` when the worktree is clean and execution planning finds a safe non-conflicting batch:
+Use explicit parallel mode when the user says `并行`, `parallel`, asks for multiple RA agents, or asks for isolated parallel execution. Ordinary `RunProject` may also auto-delegate to `RunParallel` when the worktree is clean and execution planning finds a safe non-conflicting batch. If the same project already has an active write-capable RA lock, ordinary `RunProject` automatically falls back to `RunProjectIsolated`, which creates a separate git worktree with independent `scripts\ralph` state:
 
 ```text
 用 RA 并行跑 <project> 的 <task>
@@ -37,9 +37,10 @@ Use explicit parallel mode when the user says `并行`, `parallel`, asks for mul
 - Do not run Ralph directly from a user profile directory; run it through a workspace project entrypoint.
 - Use the current directory only when it is clearly the target project and no workspace/project name is specified.
 - `RunProject` allows dirty continuation for the current baseline.
+- `RunProjectIsolated` allows multiple independent PRDs for the same registered project by creating an isolated worktree and isolated Ralph state.
 - `RunParallel` requires a clean worktree because it creates worktrees, commits, and merges.
 - `CleanupContext` requires a clean worktree unless it is `-DryRun`.
-- Write-capable Ralph commands are project-locked: `RunProject`, real `RunParallel`, and real `CleanupContext` must not overlap on the same project.
+- Write-capable commands that share the main project state are project-locked. `RunProjectIsolated` may run beside another same-project RA because it does not write the main project's `scripts\ralph\prd.json` or `progress.txt`.
 
 ## Required Flow
 
@@ -128,8 +129,25 @@ Rules:
 - Do not upgrade a dirty run into `RunParallel`.
 - Record the dirty baseline in the execution brief and `scripts\ralph\progress.txt`.
 - Pass dirty continuation into the Ralph runner so the child Codex process stays on the current branch and does not require PRD `branchName` checkout for that run.
+- If another same-project RA is already active and the new task is a separate PRD, use `RunProjectIsolated` instead of terminating the old RA or overwriting main-project Ralph state.
 
 If the user explicitly asks for isolation, parallel execution, auto-commit, or merge-based fanout while the project is dirty, stop and ask them to commit, stash, or switch back to ordinary `RunProject`.
+
+## Same-Project Isolated Runs
+
+Use `RunProjectIsolated` when the same registered project already has an active RA run but the user wants to start a separate independent task:
+
+```powershell
+.\ralph-auto.ps1 -Command RunProjectIsolated -WorkspaceRoot 'C:\Users\<current-user>\RalphWorkspace' -Project 'my-app' -PrdPath 'C:\path\to\new-prd.json' -MaxIterations 10
+```
+
+Rules:
+
+- The isolated run creates `RalphWorkspace\tasks\<project>\<runId>\main`.
+- The isolated worktree has its own `scripts\ralph\prd.json`, `progress.txt`, and `.run-lock.json`.
+- Do not overwrite the main project's PRD while another same-project RA is active.
+- Isolated runs leave their branch unmerged by default; use `-MergeOnSuccess` only when the main worktree is clean and automatic merge is explicitly intended.
+- Report the isolated worktree, branch, PRD, and progress paths in the final response.
 
 ## Final Deliverables
 
