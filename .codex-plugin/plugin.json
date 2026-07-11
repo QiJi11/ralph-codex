@@ -1,6 +1,6 @@
 {
   "name": "ralph-codex",
-  "version": "1.0.0",
+  "version": "1.0.0+codex.20260711161208",
   "description": "Skills, prompts, and workspace helpers for the Ralph autonomous Codex CLI task loop.",
   "author": {
     "name": "QiJi11"

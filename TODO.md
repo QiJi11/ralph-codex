@@ -2,8 +2,8 @@
 
 Repository: `QiJi11/ralph-codex`
 Branch: `codex-support`
-Current supported path: Codex CLI
-Codex App status: `not certified`; verify only through `APP_VERIFY.md`
+Current supported paths: Codex CLI and Codex App plugin
+Codex App status: `verified`; evidence is recorded in `APP_VERIFY.md`
 Default workspace: `C:\Users\<current-user>\RalphWorkspace`
 
 This file tracks version goals for the Codex-first Ralph fork. Keep upstream
@@ -122,3 +122,20 @@ Do not implement first; keep as planned follow-up.
   - `verified`
   - `blocked`
   - `fallback to CLI`
+
+### 2026-07-11 local closeout
+
+- [x] Confirmed the only worktree change, `flowchart/src/App.tsx`, extracts node creation from component render so React no longer reads `nodePositions.current` during initial render. The base file fails `react-hooks/refs`; the current file passes lint and build.
+- [x] PowerShell parser checks passed for `ralph.ps1`, `ralph-auto.ps1`, `workspace.ps1`, and `install-codex.ps1`; `git diff --check` and `ListProjects` passed.
+- [x] `install-codex.ps1 -Force` was verified in an isolated temporary `CODEX_HOME`; all four skill directories and nine vendor files matched the repository. The global install was not overwritten because its `ralph-auto` skill differs from the repository.
+- [x] At the 2026-07-11 checkpoint, `APP_VERIFY.md` recorded `Codex App support: blocked` because App plugin/skill discovery and the natural-language trigger had not passed. The 2026-07-12 recheck below supersedes that checkpoint and verifies App support.
+- [x] Commit boundary: keep `flowchart/src/App.tsx` as the standalone lint fix and keep `APP_VERIFY.md`/`TODO.md` as verification documentation. No commit or push was performed.
+
+### 2026-07-12 App recheck
+
+- [x] Repaired the invalid global marketplace source, created the personal marketplace, installed `ralph-codex@personal`, and verified the App card reaches `Installed` / `Try in chat`.
+- [x] Verified App skill discovery for all four plugin skills: `Prd`, `Ralph`, `Ralph Auto`, and `Run Ralph`.
+- [x] CLI route-only eval passed positive cases for all four plugin skills and a negative `ralph-auto` case.
+- [x] Verified the App-side natural-language route from the Desktop rollout: the exact read-only `RA 上面的内容` prompt produced `agent_message = ralph-auto`; the later Prompt Sensei Stop-hook continuation caused the empty visible body.
+- [x] Verified the post-fix App response end to end: the page visibly showed `ralph-auto`, the matching rollout completed with `last_agent_message = ralph-auto`, no Sensei-only continuation appeared, and all 15 pre-test CLI/Prodex PIDs remained alive.
+- [x] Verified App-local execution with the documented `RunParallel -DryRun` command: the App returned exit code `1` and `Project is not registered: inventory-app`, started no worker, modified no files, and recorded the command/output/final answer in rollout `019f524f-b399-7dd1-a4ce-e94cdadd1c12`.

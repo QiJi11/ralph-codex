@@ -34,7 +34,7 @@ After restart, ask Codex from any local project or Ralph workspace:
 用 RA 跑 inventory-app 的 CSV import MVP
 ```
 
-The current supported surface is Codex CLI with local git repositories, PowerShell, and `RalphWorkspace`. Codex App/plugin support is not certified yet; see `APP.md` and `APP_VERIFY.md`.
+The supported surfaces are Codex CLI and the Codex App plugin with local git repositories, PowerShell, and `RalphWorkspace`. See `APP.md` for App boundaries and `APP_VERIFY.md` for the verified checklist.
 
 ### Install Into Codex
 
