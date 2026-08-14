@@ -19,3 +19,4 @@
 
 # Local smoke-test scripts
 .tmp-*.ps1
+*.log
